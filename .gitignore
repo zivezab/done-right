@@ -1,0 +1,17 @@
+# Reference screenshots (third-party app captures, may contain personal data)
+screenshots/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local-only config & secrets
+.env
+.env.*
+.claude/settings.local.json
+
+# Dependencies / builds
+node_modules/
+dist/

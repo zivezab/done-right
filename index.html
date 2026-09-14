@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <meta name="description" content="Done Right — book verified home, lifestyle and professional services in Singapore and Malaysia: cleaning, repairs, massage, tuition, swimming, singing, software, ML and AI experts.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Done Right</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon.svg">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    // apply saved theme before first paint
+    try {
+      var s = JSON.parse(localStorage.getItem('doneright.state.v1') || '{}');
+      var t = s.theme || 'dark';
+      if (t === 'system') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <noscript>Done Right needs JavaScript enabled.</noscript>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" async></script>
+  <script src="js/core.js" defer></script>
+  <script src="js/data/categories.js" defer></script>
+  <script src="js/data/locations.js" defer></script>
+  <script src="js/data/providers.js" defer></script>
+  <script src="js/pages/home.js" defer></script>
+  <script src="js/pages/browse.js" defer></script>
+  <script src="js/pages/provider.js" defer></script>
+  <script src="js/pages/orders.js" defer></script>
+  <script src="js/pages/account.js" defer></script>
+  <script src="js/pages/verify.js" defer></script>
+  <script src="js/pages/pro.js" defer></script>
+  <script src="js/app.js" defer></script>
+</body>
+</html>
