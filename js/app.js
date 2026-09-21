@@ -3,16 +3,12 @@
   'use strict';
   DR.applyTheme();
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (DR.store.s.theme === 'system') { DR.applyTheme(); DR.router.refresh(); } });
-  document.documentElement.lang = DR.store.s.lang || 'en';
+  document.documentElement.lang = { zh: 'zh-Hans', ms: 'ms' }[DR.store.s.lang] || 'en';
+  DR.i18n.start();
 
-  // Demo: simulated Trust & Safety review of submitted credentials
-  setInterval(() => {
-    const u = DR.store.user();
-    if (!u || !DR.verify.tick(u)) return;
-    DR.ui.toast('✅ A verification item was approved');
-    const busy = document.querySelector('.sheet-wrap') || (document.activeElement && document.activeElement.matches('input, textarea, select'));
-    if (!busy && /^\/(verify|me|pro|provider|settings)/.test(DR.router.parse().path)) DR.router.refresh();
-  }, 4000);
+  // Demo: simulate the other side of the marketplace (approvals, quotes, reviews, expiries)
+  DR.demo.tick();
+  setInterval(() => DR.demo.tick(), 3000);
 
   DR.router.start();
 })(window.DR);
