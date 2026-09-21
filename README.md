@@ -1,23 +1,74 @@
 # Done Right
 
-An English-first, mobile-friendly marketplace web app for home, lifestyle and professional services in **Singapore** and **Malaysia**. It's modelled on the 到位 (Daowei) app and adds:
+An English-first, mobile-friendly marketplace web app for home, lifestyle and professional services in **Singapore** and **Malaysia**, fully translated into **中文** and **Bahasa Melayu**. It's modelled on the 到位 (Daowei) app and adds:
 
 - **Two-sided accounts.** Anyone can register as a customer, a service provider, or both.
-- **Verification like a LinkedIn profile.** Identity (NRIC / FIN / MyKad / passport + selfie, or Singpass / MyDigital ID), education, licences & certifications, work experience, background checks and business registration (ACRA UEN / SSM). Each item has its own review status and verified badge.
+- **Verification like a LinkedIn profile.** Identity (NRIC / FIN / MyKad / passport with a liveness check, or Singpass / MyDigital ID), education, licences & certifications, work experience, background checks and business registration (ACRA UEN / SSM). Each item has its own review status, expiry and verified badge.
 - **A yellow-pages directory.** 303 service types in 24 groups: every category from the 到位 screenshots, plus tuition, languages, music (singing coach, piano…), sports (swimming instructor…), tech (software engineer, ML engineer, AI expert…), business, creative, events, renovation, pets, errands and more.
-- **Provider availability.** Weekly hours, slot length, presets, and date overrides (days off / custom hours). Customers book real open slots, and a booked slot blocks its full service duration.
+- **Provider-controlled scheduling.** Weekly hours, slot length, date overrides, per-slot blocking and booking rules (instant vs request-to-book, reschedule lock period, notice, booking window, buffers).
 
 ## Run it
 
-No build step and no dependencies. Serve the folder with any static server:
+No build step and no dependencies. Start the bundled no-cache dev server:
 
 ```bash
-python3 -m http.server 5173
+python3 tools/serve.py 5173
 ```
 
-Then open http://localhost:5173 on a phone-sized window.
+Then open http://localhost:5173 on a phone-sized window. Any static server works too, but `serve.py` sends `Cache-Control: no-store` so you never run stale scripts.
 
-The app is fully client-side. All data (accounts, orders, follows, messages) is stored in `localStorage`, and uploaded documents go to `IndexedDB`. **Settings › Reset demo data** clears everything.
+The app is fully client-side. State lives in `localStorage` and uploaded documents live in `IndexedDB`, encrypted. **Settings › Reset demo data** clears everything. Add `?sandbox=<name>` to the URL for an isolated data set, and `?lang=zh|ms` to switch language.
+
+## Tests
+
+Open http://localhost:5173/tests/index.html. The suite has 93 tests covering availability, booking and rescheduling, quotes, licensing, verification, chat, search, SEO, i18n and performance budgets. It runs in the browser against isolated storage (`doneright.test.v1`), so your demo data is untouched. Results are also exposed as `window.__TESTS__` for automation.
+
+The i18n specs crawl about 42 routes in both 中文 and Bahasa Melayu, and fail on any untranslated UI string. Missing strings are listed in `window.__MISSING_ZH__` and `window.__MISSING_MS__`.
+
+## Features
+
+### Customers
+- **Discovery.** Search with typo tolerance and synonyms ("maid", "ac", "psle"), a category directory, Nearby (map + list, lazy-loaded) with filters including *Instant book* and *Licensed*, and a waitlist when no pro is in range.
+- **Booking.** Real open slots that respect each provider's rules. *Instant book* confirms on payment. *Request to book* holds payment until the provider accepts; it auto-refunds if they decline or don't respond.
+- **Reschedule.** Customers can move a booking themselves until the provider's lock period (e.g. 24 h before). Request-to-book providers approve moves. Providers can propose a new time, which the customer accepts or declines.
+- **Request a quote.** For renovation, moving, events and other custom jobs: describe the job, add photos, a budget and a time. Up to 5 nearby pros send offers; accepting one books it at the quoted price.
+- **Chat and calls.** Realtime chat with presence and typing indicators. Voice calls through a masked relay number (WebRTC between two browser tabs; simulated for demo pros). Calls are only possible around an active booking.
+- **Reviews.** Photo reviews marked *Verified booking*, plus provider replies.
+
+### Providers
+- **Schedule.** Tap any day to block or unblock individual slots, block the whole day or set custom hours. Existing bookings are never silently cancelled.
+- **Booking rules.** Instant / request mode, response window, reschedule lock period and limit, free-cancellation window, minimum notice, booking window and buffer.
+- **Jobs and quotes inbox.** Accept or decline requests, propose new times, send quotes into free slots only.
+- **Licensing rules per category.** 41 statutory licences (e.g. EMA, PUB, HDB, NEA, SNB, CEA, Suruhanjaya Tenaga, SPAN, CIDB, MOTAC, KKM) mapped to the services that need them in each market. Regulated services stay hidden from customers until the licence is verified. Childcare, tuition, eldercare and some pet services also require a background check.
+- **Review replies.** Reply to reviews, with an *Unreplied* filter.
+
+### Trust & Safety
+- **Stronger identity checks.** A camera liveness challenge, document expiry, a face-match score, and a SHA-256 ID hash registry that stops one ID being used on two accounts. Licence numbers are checked against a (simulated) public register.
+- **Encrypted documents.** Verification uploads are encrypted with AES-256-GCM, using a non-extractable key held in IndexedDB.
+- **Reviewer console** (`#/admin`). Pending and reviewed queues, approve or reject with a reason, and an audit log.
+
+### SEO
+- Each route sets its own meta description, Open Graph tags, canonical URL and schema.org JSON-LD (`Service`, `ProfessionalService`, `AggregateRating`, `ItemList`). Private pages are `noindex`.
+- `tools/build_seo.py` prerenders crawlable landing pages from the same data files:
+
+  ```bash
+  python3 tools/build_seo.py --base https://doneright.sg
+  ```
+
+  This writes `dist/` (gitignored) with about 1,100 pages: country hubs, `/{sg,my}/categories/<group>/`, `/{sg,my}/<service>/`, and hot services × popular areas (`/my/aircon-servicing/petaling-jaya/`). It also writes `sitemap.xml` and `robots.txt`. Deploy `dist/` next to `index.html`. The SPA's canonical URLs point at these pages.
+
+## Configuration
+
+`js/config.js` holds the defaults. Override them by defining `window.DR_CONFIG` before it loads.
+
+| Key | Purpose |
+| --- | --- |
+| `maps` | Tile provider per market: `onemap` (SG, free and keyless), `maptiler` (needs `maptilerKey`) or `osm` (development only) |
+| `maptilerKey` | MapTiler API key; recommended for Malaysia |
+| `oneMapToken` | Enables SG postal code → address autofill |
+| `siteUrl` | Canonical origin for SEO tags |
+| `relay` | Masked-number prefixes per market |
+| `demo` | Simulation timings (provider replies, quote offers, auto-review) |
 
 ## Demo notes
 
@@ -25,44 +76,37 @@ The app is fully client-side. All data (accounts, orders, follows, messages) is 
 | --- | --- |
 | Sign in | Mobile (+65 / +60) or email OTP. The code is shown on screen. |
 | Payment | PayNow / card / GrabPay (SG) and DuitNow / FPX / Touch 'n Go / card (MY) are simulated. No card data is collected. |
-| Verification review | Submitted items are auto-approved about 20 s later, or right away with **Approve now**. Singpass / MyDigital ID verification is simulated instantly. |
-| Job completion | On an upcoming order, **Simulate job completed** moves it to *To confirm*. |
-| Incoming bookings | Live providers can create a sample paid booking from the Provider centre. |
-| Map | Leaflet with OpenStreetMap tiles. There's a styled offline fallback if the CDN is unavailable. |
+| Verification review | Auto-approved about 20 s after submission. Toggle this off in `#/admin` to review items by hand. |
+| Counterparts | Seed providers accept requests (about 1 in 10 decline), approve reschedules and send quotes. Sample customers accept proposals. Toggle this in `#/admin`. |
+| Realtime | Open the app in two tabs and sign in as different users to chat and call each other live. |
 
-The seed providers (~500) are generated deterministically, so every sub-category has providers in both countries.
-
-## Features
-
-- **Home.** Location picker, search, banners, guarantees, category grid, Express services, provider tabs (therapists, tutors, coaches, tech pros…).
-- **Categories.** Sidebar layout, plus a full directory with by-category and A–Z views and a filter.
-- **Service page.** Pros offering the service, with price, next free slot and distance; best-match booking; inclusions; FAQ.
-- **Nearby.** Map and list views. Filters for distance, gender, who the provider serves, availability, age, rating, verification, languages, coupons and more.
-- **Provider profile.** Photo gallery, attributes, credential strip, rating radar, 7-day availability, services, experience / education / certifications, reviews, follow, similar providers, report and hide.
-- **Credentials page.** Watermarked documents, skills-assessment certificate, and the signed service commitment.
-- **Booking.** Choose a service, on-site or online, an address (SG 6-digit / MY 5-digit postcodes), date, time slot and notes, then see the fee breakdown and pay.
-- **Orders.** To pay → Upcoming → To confirm → To review → Completed, plus cancellations with a refund policy, issue reports and reviews.
-- **Cart & following.** Providers, services and shops. Also chat with quick replies, customer support, and settings (language, appearance, notifications, blocked providers, addresses, PDPA pages).
-- **Provider centre.** 5-step onboarding wizard, go-live checklist, services & pricing, availability calendar, jobs, earnings.
+The seed providers (~500) are generated deterministically with verified licences where required, so every service has providers in both countries.
 
 ## Structure
 
 ```
 index.html
 css/app.css             # dark default + light theme, mobile-first
-js/core.js              # utils, i18n, store, IndexedDB files, router, UI kit, avatar generator
-js/data/categories.js   # 24 groups / 303 services
-js/data/locations.js    # SG & MY areas, ID formats, payment methods, schools
-js/data/providers.js    # seed providers, availability engine, fees, reviews, search, shared cards
-js/pages/*.js           # home, browse, provider, orders, account, verify, pro
-js/app.js               # boot
+js/core.js              # utils, event bus, store + migrations, encrypted file store, router, UI kit
+js/i18n.js              # DOM translation engine (English source → 中文 / Bahasa Melayu)
+js/i18n/*.js            # dictionaries: dynamic patterns, UI strings, directory data
+js/config.js            # runtime configuration
+js/data/                # categories, locations, licensing rules, providers + availability engine
+js/booking.js           # booking lifecycle, reschedule, quotes
+js/rt.js                # realtime transport, chat, masked numbers, calls
+js/seo.js               # meta tags + JSON-LD
+js/demo.js              # counterpart simulation
+js/pages/*.js           # home, browse, provider, orders, quotes, account, verify, admin, pro
+tests/                  # in-browser test suite
+tools/serve.py          # no-cache dev server
+tools/build_seo.py      # static landing pages + sitemap
 ```
 
 ## Towards production
 
-- **Backend.** API and database for users, providers, orders, availability, reviews and chat (with real-time updates).
-- **Auth.** SMS/email OTP provider, plus Singpass MyInfo (SG) and MyDigital ID (MY).
-- **Payments & payouts.** A PayNow / DuitNow / FPX-capable PSP with escrow-style capture and weekly payouts.
-- **Documents.** Encrypted object storage for KYC files, a reviewer back office, and retention rules under PDPA SG / MY.
-- **Messaging.** Push notifications; masked calling.
-- **Maps.** A production tile provider or key-based maps service.
+- **Backend.** An API and database for users, providers, orders, availability, quotes, reviews and chat. The demo's rules (`DR.booking`, `DR.avail`, `DR.lic`) move server-side and are enforced there.
+- **Realtime and calls.** Replace the BroadcastChannel transport with WebSockets, and use a CPaaS (Twilio, Vonage, 8x8) for number masking and PSTN calls.
+- **Auth.** An SMS/email OTP provider, plus Singpass MyInfo (SG) and MyDigital ID (MY).
+- **Payments and payouts.** A PayNow / DuitNow / FPX-capable PSP with escrow-style capture and weekly payouts.
+- **Documents.** Object storage with KMS-managed envelope encryption, a reviewer back office with SSO and role-based access, logged and time-limited document access, and retention rules under PDPA SG / MY.
+- **Verification vendors.** Liveness and face match from a KYC provider, plus direct public-register lookups where APIs exist.

@@ -14,8 +14,8 @@
     return {
       tab: 'categories', title: 'Categories', cls: 'cat-page',
       html: `<div class="topbar">
-          <a class="searchbar grow" href="#/search">${icon('search', 18, 'brand')}<span class="ellipsis">${DR.t('Search services, providers, shops')}</span></a>
-          <a class="pill-btn" href="#/directory">${DR.t('All categories')} ${icon('down', 14, 'brand')}</a>
+          <a class="searchbar grow" href="#/search">${icon('search', 18, 'brand')}<span class="ellipsis">Search services, providers, shops</span></a>
+          <a class="pill-btn" href="#/directory">All categories ${icon('down', 14, 'brand')}</a>
         </div>
         <div class="cat-layout">
           <aside class="cat-side" id="side">
@@ -53,7 +53,7 @@
     if (groupSort === 'popular') subs.sort((a, b) => DR.data.sold(b) - DR.data.sold(a));
     const pros = DR.data.byGroup(g.id).sort((a, b) => (b.skill || 0) * 2 - DR.data.dist(b) / 5 - ((a.skill || 0) * 2 - DR.data.dist(a) / 5)).slice(0, 5);
     return {
-      title: g.name,
+      title: g.name, seo: DR.seo.group(g, S().country),
       html: `${DR.ui.navbar({ title: g.name, right: `<a class="icon-btn" href="#/cart" aria-label="Cart">${icon('cart')}</a><a class="icon-btn" href="#/search" aria-label="Search">${icon('search')}</a>` })}
         <div class="sub-strip">${g.subs.map((s) => `<a class="sub-chip" href="#/service/${s.id}"><span>${s.emoji}</span><small class="ellipsis">${esc(s.name.replace(/\s*\(.*\)/, ''))}</small></a>`).join('')}</div>
         <div class="sortbar">
@@ -94,26 +94,31 @@
       const svc = p.services.find((s) => s.subId === sub.id);
       const n = DR.avail.next(p, svc.duration);
       return `<div class="pro-row" data-go="/provider/${p.id}">${DR.cards.pimg(p, 0, 'av-md')}<div class="grow minw0">
-          <div class="row gap6 nowrap"><b class="ellipsis">${esc(p.name)}</b>${DR.cards.rating(p)}</div>
-          <div class="muted xs ellipsis">${esc(p.shop || 'Independent pro')} · ${DR.data.distLabel(p)}</div>
+          <div class="row gap6 nowrap"><b class="ellipsis" data-no-i18n>${esc(p.name)}</b>${DR.cards.rating(p)}</div>
+          <div class="muted xs ellipsis"><span ${p.shop ? 'data-no-i18n' : ''}>${esc(p.shop || 'Independent pro')}</span> · ${DR.data.distLabel(p)}</div>
           <div class="xs ${n && n.day === 0 ? 'brand' : 'muted'}">${n ? `${icon('clock', 12)} ${DR.u.relDay(n.key)} ${n.time}` : 'Fully booked'}</div>
         </div><div class="right"><div class="price">${DR.cards.priceHTML(svc.price, svc.unit, p.country)}</div><a class="btn btn-primary btn-xs mt4" href="#/book/${p.id}?sub=${sub.id}">Book</a></div></div>`;
     };
+    const quoteBased = DR.isQuoteBased(sub);
+    const nearCount = pros.filter((p) => DR.data.dist(p) <= 30).length;
+    const onWaitlist = S().waitlist.some((w) => w.subId === sub.id && w.area === S().area);
     return {
-      title: sub.name, bar: true,
+      title: sub.name, bar: true, seo: DR.seo.service(sub, cc),
       html: `${DR.ui.navbar({ title: '', cls: 'navbar-float', right: `<button class="icon-btn glass" id="share" aria-label="Share">${icon('share')}</button><a class="icon-btn glass" href="#/cart" aria-label="Cart">${icon('cart')}</a>` })}
         <div class="svc-hero">${DR.ui.thumb(sub, { cls: 'thumb-hero', badge: `${g.emoji} ${g.name}` })}</div>
         <section class="card svc-info">
           <div class="row gap6"><span class="tag tag-select">Select</span><span class="tag tag-gold">${esc(g.arrival)}</span>${g.mode === 'both' ? '<span class="tag tag-blue">Online available</span>' : ''}</div>
           <h1 class="h1 mt8">${esc(sub.name)}</h1>
           <div class="row between mt8"><span class="price price-lg">${price === 0 ? '<b>Free</b> <small>quote on visit</small>' : `<small>from</small> <b>${money(price)}</b><small>/${esc(sub.unit)}</small>`}</span><span class="muted small">${DR.u.compact(DR.data.sold(sub))} booked · ${DR.data.subRating(sub)}% positive</span></div>
-          <p class="muted small mt8">${esc(g.blurb)} Prices vary by provider; travel fee may apply beyond 3 km.</p>
+          <p class="muted small mt8"><span>${esc(g.blurb)}</span> <span>Prices vary by provider; travel fee may apply beyond 3 km.</span></p>
           <div class="g-chips mt12"><span>${icon('check', 14)}On-time or we pay</span><span>${icon('check', 14)}No hidden fees</span><span>${icon('check', 14)}Verified pros</span><span>${icon('check', 14)}Redo if unhappy</span></div>
         </section>
         <section class="card">
           <div class="card-h"><h2>Choose a pro</h2><span class="muted small">${pros.length} in ${esc(DR.COUNTRIES[cc].name)}</span></div>
           ${pros.length ? pros.slice(0, 6).map(proRow).join('') + (pros.length > 6 ? `<a class="btn btn-ghost btn-block mt8" href="#/nearby?sub=${sub.id}">See all ${pros.length} providers</a>` : '') : `<div class="center pad-v"><p class="muted">No providers offer this in your area yet.</p><a class="btn btn-primary btn-sm mt8" href="#/pro">Offer this service</a></div>`}
+          ${nearCount < 2 ? `<div class="waitlist mt12">${icon('bell', 18, 'brand')}<span class="grow small">${nearCount ? 'Only one pro' : 'No pros'} within 30 km of <b data-no-i18n>${esc(S().area)}</b>. <span>${onWaitlist ? 'You are on the waitlist — we will notify you.' : 'Join the waitlist and we will notify you when one joins.'}</span></span>${onWaitlist ? '' : '<button class="btn btn-ghost btn-xs" id="waitlist">Notify me</button>'}</div>` : ''}
         </section>
+        <a class="card quote-cta ${quoteBased ? 'quote-cta-strong' : ''}" href="#/quote/new?sub=${sub.id}">${icon('quote', 22)}<span class="grow"><b>${quoteBased ? ('Custom job? Get quotes from up to 5 pros') : ('Need something custom?')}</b><br><small class="muted">Describe the job, compare offers, accept the best one — free.</small></span>${icon('right', 16)}</a>
         <section class="card"><div class="card-h"><h2>What's included</h2></div><ul class="checks">${g.includes.map((x) => `<li>${icon('checkCircle', 18, 'green')}${esc(x)}</li>`).join('')}</ul></section>
         <section class="card"><div class="card-h"><h2>How it works</h2></div>
           <ol class="steps">${[['Pick a pro & time', 'Compare verified profiles, credentials and live availability.'], ['Pay securely', 'Your payment is held by Done Right until the job is done.'], ['Get it done right', 'Your pro arrives on time — or joins you online.'], ['Confirm & review', 'Release payment and help the community with a review.']].map(([t, d], i) => `<li><span class="step-n">${i + 1}</span><div><b>${t}</b><p class="muted small">${d}</p></div></li>`).join('')}</ol>
@@ -124,7 +129,7 @@
         <div class="bottom-bar">
           <button class="bb-icon ${followed ? 'brand' : ''}" id="fav">${icon('heart', 22)}<span>${followed ? 'Saved' : 'Save'}</span></button>
           <button class="bb-icon ${inCart ? 'brand' : ''}" id="cart">${icon('cart', 22)}<span>${inCart ? 'In cart' : 'Cart'}</span></button>
-          <button class="btn btn-primary grow" id="bookNow" ${pros.length ? '' : 'disabled'}>Book best match</button>
+          ${quoteBased ? `<a class="btn btn-primary grow" href="#/quote/new?sub=${sub.id}">Request quotes</a>` : `<button class="btn btn-primary grow" id="bookNow" ${pros.length ? '' : 'disabled'}>Book best match</button>`}
         </div>`,
       mount(el) {
         el.querySelector('#fav').onclick = () => DR.store.update((s) => { s.follows.services = followed ? s.follows.services.filter((x) => x !== sub.id) : [sub.id, ...s.follows.services]; });
@@ -134,7 +139,10 @@
           DR.ui.toast('Added to cart');
         };
         el.querySelector('#share').onclick = () => DR.share(sub.name, `Book ${sub.name} on Done Right`);
-        el.querySelector('#bookNow').onclick = () => {
+        const wl = el.querySelector('#waitlist');
+        if (wl) wl.onclick = () => { DR.store.update((s) => { s.waitlist.push({ subId: sub.id, area: s.area, country: s.country, ts: Date.now() }); }); DR.ui.toast('Added to waitlist'); };
+        const bn = el.querySelector('#bookNow');
+        if (bn) bn.onclick = () => {
           const m = bestMatch(pros);
           if (!m) return DR.ui.toast('All providers are fully booked — try another day');
           DR.ui.toast(`Matched with ${m.p.name}`);
@@ -153,6 +161,7 @@
 
   // ---------------------------------------------------------------- Nearby
   let nearView = 'list';
+  const PAGE = 20;
   const blankFilter = () => ({ sort: 'recommended', gender: '', distance: 30, ignoreDist: false, serves: '', ageMax: 0, minSkill: 0, idOnly: false, certOnly: false, bgOnly: false, langs: [], avail: '', flags: [], q: '', subs: [] });
   let nf = blankFilter();
   const NSORTS = [['recommended', 'Recommended'], ['distance', 'Nearest'], ['soonest', 'Soonest available'], ['rating', 'Top rated'], ['price', 'Lowest price'], ['jobs', 'Most jobs']];
@@ -165,8 +174,10 @@
   function nearbyList(g, sub) {
     let list = DR.data.providers();
     if (g && g !== 'all') list = list.filter((p) => p.groupId === g || p.subs.some((s) => DR.SUB[s] && DR.SUB[s].groupId === g));
-    if (sub) list = list.filter((p) => p.subs.includes(sub));
-    if (nf.subs.length) list = list.filter((p) => p.subs.some((s) => nf.subs.includes(s)));
+    if (sub) list = list.filter((p) => p.services.some((s) => s.subId === sub));
+    if (nf.subs.length) list = list.filter((p) => p.services.some((s) => nf.subs.includes(s.subId)));
+    if (nf.flags.includes('instant')) list = list.filter((p) => DR.policy(p).mode === 'instant');
+    if (nf.flags.includes('licensed')) list = list.filter((p) => p.verified.licensed);
     if (nf.gender) list = list.filter((p) => p.gender === nf.gender);
     if (nf.serves) list = list.filter((p) => p.serves === 'all' || p.serves === nf.serves);
     if (nf.ageMax) list = list.filter((p) => p.age && p.age <= nf.ageMax);
@@ -215,7 +226,7 @@
       <section><h4>Provider age</h4><div class="chips chips-3">${[30, 40, 50].map((a) => chip('age', a, `≤ ${a}`, draft.ageMax === a)).join('')}</div></section>
       <section><h4>Skill rating (≥ ${draft.minSkill || 'any'}${draft.minSkill ? ' ★' : ''})</h4><div class="chips chips-3">${[0, 4, 4.5].map((v) => chip('skill', v, v ? `≥ ${v} ★` : 'Any', draft.minSkill === v)).join('')}</div></section>
       <section><h4>Trust & verification <span class="tag tag-green">Verified</span></h4><div class="chips chips-3">${chip('trust', 'idOnly', 'ID verified', draft.idOnly)}${chip('trust', 'certOnly', 'Certified', draft.certOnly)}${chip('trust', 'bgOnly', 'Background check', draft.bgOnly)}</div></section>
-      <section><h4>Personal filters</h4><div class="chips chips-3">${[['new', 'New on Done Right'], ['coupon', 'Has coupon'], ['repeat', '30+ repeat customers'], ['online', 'Online sessions'], ['business', 'Registered business']].map(([k, l]) => chip('flag', k, l, draft.flags.includes(k))).join('')}</div></section>
+      <section><h4>Personal filters</h4><div class="chips chips-3">${[['instant', 'Instant book'], ['licensed', 'Licensed'], ['new', 'New on Done Right'], ['coupon', 'Has coupon'], ['repeat', '30+ repeat customers'], ['online', 'Online sessions'], ['business', 'Registered business']].map(([k, l]) => chip('flag', k, l, draft.flags.includes(k))).join('')}</div></section>
       <section><h4>Languages</h4><div class="chips">${['English', 'Mandarin', 'Malay', 'Tamil', 'Cantonese', 'Hokkien', 'Hindi', 'Japanese', 'Korean'].map((l) => chip('lang', l, l, draft.langs.includes(l))).join('')}</div></section>
       <section><h4>Find a provider</h4><input class="input" id="fQ" placeholder="Name, provider ID or shop name" value="${esc(draft.q)}"></section>
     </div>`;
@@ -279,8 +290,8 @@
             <button class="fb-btn" id="nfilter">Filter${count ? ` (${count})` : ''} ${icon('filter', 14)}</button>
           </div>
           ${relaxed ? `<div class="notice">${icon('info', 16)} No providers within ${nf.distance} km — showing the nearest in ${esc(DR.COUNTRIES[S().country].name)}.</div>` : ''}
-          <div class="plist">${list.slice(0, 60).map((p) => DR.cards.provider(p)).join('') || DR.ui.empty('heart', 'No providers match your filters', '<button class="btn btn-ghost" id="clearF">Clear filters</button>')}</div>
-          ${list.length > 60 ? `<p class="center muted small mb16">Showing 60 of ${list.length}. Refine with filters to see more.</p>` : ''}
+          <div class="plist" id="plist">${list.slice(0, PAGE).map((p) => DR.cards.provider(p)).join('') || DR.ui.empty('heart', 'No providers match your filters', '<button class="btn btn-ghost" id="clearF">Clear filters</button>')}</div>
+          ${list.length > PAGE ? `<p class="center muted small mb16" id="more-sentinel">${list.length} providers · scroll for more</p>` : ''}
         ` : `
           <div class="map-wrap"><div id="map" class="map"></div>
             <button class="map-locate" id="locate" aria-label="Recenter">${icon('target', 22)}</button>
@@ -305,9 +316,43 @@
         if (tabs) tabs.scrollIntoView({ inline: 'center', block: 'nearest' });
         el.querySelectorAll('#gtabs a').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); DR.router.go(q({ g: a.dataset.k, view: nearView }).replace(/&?sub=[^&]*/, ''), { replace: true }); }));
         if (nearView === 'map') mountMap(el, list.slice(0, 200));
+        // incremental rendering: append the next page when the sentinel scrolls into view
+        const sentinel = el.querySelector('#more-sentinel');
+        if (sentinel && 'IntersectionObserver' in window) {
+          let shown = PAGE;
+          const io = new IntersectionObserver((entries) => {
+            if (!entries[0].isIntersecting) return;
+            const next = list.slice(shown, shown + PAGE);
+            shown += next.length;
+            el.querySelector('#plist').insertAdjacentHTML('beforeend', next.map((p) => DR.cards.provider(p)).join(''));
+            DR.files.hydrate(el);
+            if (shown >= list.length) { io.disconnect(); sentinel.remove(); }
+          }, { rootMargin: '400px' });
+          io.observe(sentinel);
+          DR.onLeave(() => io.disconnect());
+        }
       },
     };
   });
+
+  // Production map tiles per market (see js/config.js): OneMap (SG, keyless) · MapTiler (needs key) · OSM (dev fallback)
+  DR.tileLayer = function (cc) {
+    const L = window.L;
+    const dark = document.documentElement.dataset.theme !== 'light';
+    const provider = (DR.CONFIG.maps || {})[cc] || 'osm';
+    if (provider === 'onemap' && cc === 'SG') {
+      return L.tileLayer(`https://www.onemap.gov.sg/maps/tiles/${dark ? 'Night' : 'Default'}/{z}/{x}/{y}.png`, {
+        minZoom: 11, maxZoom: 19, detectRetina: true, bounds: [[1.144, 103.535], [1.494, 104.502]],
+        attribution: '<img src="https://www.onemap.gov.sg/web-assets/images/logo/om_logo.png" style="height:14px;width:14px;vertical-align:middle"> <a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a> &copy; contributors | <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener">Singapore Land Authority</a>',
+      });
+    }
+    if (provider === 'maptiler' && DR.CONFIG.maptilerKey) {
+      return L.tileLayer(`https://api.maptiler.com/maps/${dark ? 'dataviz-dark' : 'streets-v2'}/256/{z}/{x}/{y}.png?key=${encodeURIComponent(DR.CONFIG.maptilerKey)}`, {
+        maxZoom: 19, attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>',
+      });
+    }
+    return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors (dev tiles — set a MapTiler key for production)', maxZoom: 19, className: 'osm-tiles' });
+  };
 
   function mountMap(el, list) {
     const mapEl = el.querySelector('#map');
@@ -321,7 +366,7 @@
     };
     const init = () => {
       const map = window.L.map(mapEl, { zoomControl: false }).setView([here.lat, here.lng], 13);
-      window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19, className: 'osm-tiles' }).addTo(map);
+      DR.tileLayer(S().country).addTo(map);
       window.L.marker([here.lat, here.lng], { icon: window.L.divIcon({ className: 'me-pin', html: '<span></span>', iconSize: [22, 22] }), interactive: false }).addTo(map);
       list.forEach((p) => {
         const src = p.photoFile ? DR.ui.avatar(p.id, p.gender) : DR.ui.avatar(p.id, p.gender, 0);

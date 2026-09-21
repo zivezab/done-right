@@ -22,7 +22,7 @@
   DR.page('/me', () => {
     const u = DR.store.user();
     const s = S();
-    if (u) DR.verify.tick(u);
+    if (u) DR.verify.tickAll();
     const orders = u ? s.orders.filter((o) => o.userId === u.id) : [];
     const cnt = (k) => orders.filter((o) => o.status === k).length;
     const pv = u && u.provider;
@@ -30,19 +30,19 @@
     const m = new Date().getMonth();
     const earnings = jobs.filter((o) => ['to_review', 'completed'].includes(o.status) && new Date(o.paidAt || o.createdAt).getMonth() === m).reduce((a, o) => a + o.price, 0);
     const trust = u ? DR.verify.score(u) : null;
-    const unread = Object.values(s.threads).reduce((a, t) => a + (t.unread || 0), 0);
+    const unread = DR.chat.unreadTotal(DR.store.sessionId());
     const upcomingJobs = jobs.filter((o) => o.status === 'upcoming').length;
     const services = [
-      ['/verify', 'verified', 'Verification centre'], ['#invite', 'gift', 'Invite friends', 'Get S$10'], ['/chat/support', 'alert', 'After-sales & complaints'], ['/chat/support', 'headset', 'Customer support'],
+      ['/verify', 'verified', 'Verification centre'], ['#invite', 'gift', 'Invite friends', 'Get S$10'], ['/quotes', 'quote', 'My quote requests'], ['/chat/support', 'headset', 'Customer support'],
       ['#vouchers', 'ticket', 'Vouchers'], ['/my-reviews', 'star', 'My reviews'], ['/verify/business', 'store', 'Business onboarding'], ['/pro', 'briefcase', 'Provider recruitment'],
     ];
     return {
       tab: 'me', title: 'Me',
       html: `<div class="me-hero">
           <div class="me-top"><span class="grow"></span><a class="icon-btn" href="#/settings" aria-label="Settings">${icon('settings')}</a><a class="icon-btn" href="#/messages" aria-label="Messages">${icon('chat')}${unread ? `<i class="dot-badge">${unread}</i>` : ''}</a></div>
-          ${u ? `<a class="me-user" href="#/settings/profile">${DR.userAvatar(u, 'me-av')}<div class="grow minw0"><div class="me-name ellipsis">${esc(u.name || 'Set your name')}</div><div class="small muted">Edit / view profile ${icon('right', 12)}</div>
+          ${u ? `<a class="me-user" href="#/settings/profile">${DR.userAvatar(u, 'me-av')}<div class="grow minw0"><div class="me-name ellipsis" ${u.name ? 'data-no-i18n' : ''}>${esc(u.name || 'Set your name')}</div><div class="small muted">Edit / view profile ${icon('right', 12)}</div>
               <div class="chips-xs mt4"><span class="chip-xs ${trust.level === 'Basic' ? '' : 'chip-ok'}">${icon('shield', 11)} ${trust.level}</span>${pv ? `<span class="chip-xs">${pv.status === 'live' ? (pv.paused ? 'Provider · Paused' : 'Provider · Live') : 'Provider · Draft'}</span>` : ''}<span class="chip-xs">${DR.COUNTRIES[u.country || s.country].flag} ${esc(DR.COUNTRIES[u.country || s.country].name)}</span></div></div></a>`
-          : `<div class="me-user">${DR.userAvatar(null, 'me-av')}<div class="grow"><div class="me-name">Welcome to Done Right</div><div class="small muted">Book faster, track orders and earn with your skills</div><a class="btn btn-primary btn-sm mt8" href="#/auth?next=%2Fme">${DR.t('Sign in / Register')}</a></div></div>`}
+          : `<div class="me-user">${DR.userAvatar(null, 'me-av')}<div class="grow"><div class="me-name">Welcome to Done Right</div><div class="small muted">Book faster, track orders and earn with your skills</div><a class="btn btn-primary btn-sm mt8" href="#/auth?next=%2Fme">Sign in / Register</a></div></div>`}
         </div>
         <button class="card vip-bar" id="vip"><b>Done Right Plus</b><span class="grow"></span><span class="small muted">5% off Select services</span><span class="btn btn-light btn-xs">${s.vip ? 'Member' : 'Join now'}</span></button>
         <section class="card wallet">
@@ -55,10 +55,10 @@
             <a class="ftile" href="#/cart?tab=following&f=services"><span class="ftile-ic">${s.follows.services.length || icon('plus', 20)}</span><small>Saved services</small></a>
           </div>
         </section>
-        <section class="card"><div class="card-h"><h2>${DR.t('My orders')}</h2><a class="more" href="#/orders">All ${icon('right', 13)}</a></div>
-          <div class="order-icons">${[['to_pay', 'wallet', 'To pay'], ['upcoming', 'calendar', 'Upcoming'], ['to_confirm', 'checkCircle', 'To confirm'], ['to_review', 'smile', 'To review']].map(([k, ic, l]) => `<a class="oi" href="#/orders?tab=${k}">${icon(ic, 28)}${cnt(k) ? `<i class="dot-badge">${cnt(k)}</i>` : ''}<small>${DR.t(l)}</small></a>`).join('')}</div>
+        <section class="card"><div class="card-h"><h2>My orders</h2><a class="more" href="#/orders">All ${icon('right', 13)}</a></div>
+          <div class="order-icons">${[['to_pay', 'wallet', 'To pay'], ['upcoming', 'calendar', 'Upcoming'], ['to_confirm', 'checkCircle', 'To confirm'], ['to_review', 'smile', 'To review']].map(([k, ic, l]) => `<a class="oi" href="#/orders?tab=${k}">${icon(ic, 28)}${cnt(k) ? `<i class="dot-badge">${cnt(k)}</i>` : ''}<small>${l}</small></a>`).join('')}</div>
         </section>
-        ${pv ? `<section class="card"><div class="card-h"><h2>${DR.t('Provider centre')}</h2><a class="more" href="#/pro">Dashboard ${icon('right', 13)}</a></div>
+        ${pv ? `<section class="card"><div class="card-h"><h2>Provider centre</h2><a class="more" href="#/pro">Dashboard ${icon('right', 13)}</a></div>
             <div class="stat-cards"><a class="stat-card" href="#/pro/jobs"><b>${upcomingJobs}</b><small>Upcoming jobs</small></a><a class="stat-card" href="#/pro/services"><b>${pv.services.length}</b><small>Services</small></a><a class="stat-card" href="#/pro/availability"><b>${Object.values(pv.availability.weekly).filter((x) => x.length).length}/7</b><small>Days open</small></a></div>
             ${pv.status !== 'live' ? `<a class="btn btn-primary btn-block mt12" href="#/pro/setup">Finish setup & go live</a>` : ''}</section>`
         : `<a class="card pro-cta" href="#/pro"><div><b>Earn with your skills</b><p class="small muted">Tutors, coaches, engineers, cleaners & more — set your own prices and hours.</p><span class="btn btn-primary btn-sm mt8">Become a provider</span></div><span class="pro-cta-art" aria-hidden="true">🧑‍🏫🧑‍💻🏊</span></a>`}
@@ -170,9 +170,9 @@
               user = { id: 'u' + String(Math.floor(100000 + Math.random() * 900000)), createdAt: Date.now(), name: '', gender: '', dob: '', country: auth.cc, phone: key.phone || '', email: key.email || '', roles: { consumer: true }, addresses: [], verification: {} };
               s.users[user.id] = user;
             }
-            s.session = user.id;
             if (s.country !== user.country) { s.country = user.country; s.area = DR.POPULAR_AREAS[user.country][0]; }
           }, { render: false });
+          DR.store.setSession(user.id);
           Object.assign(auth, { sent: false, code: '', demo: '', phone: '', email: '' });
           DR.ui.toast(isNew ? 'Account created' : 'Welcome back!');
           DR.router.go(isNew ? `/welcome?next=${encodeURIComponent(next)}` : next, { replace: true });
@@ -228,26 +228,33 @@
     const idLabel = !iv ? '<span class="brand small">Not verified</span>' : iv.status === 'verified' ? '<span class="green small">Verified</span>' : '<span class="gold small">In review</span>';
     return {
       title: 'Settings',
-      html: `${DR.ui.navbar({ title: DR.t('Settings') })}
+      html: `${DR.ui.navbar({ title: ('Settings') })}
       ${u ? `<div class="list card flush">${li('/settings/profile', 'Profile')}${li('/verify/identity', 'Identity verification', idLabel)}${li('/verify', 'Verification centre')}${li('/settings/addresses', 'Service addresses', `<span class="muted small">${(u.addresses || []).length}</span>`)}${btn('phone', 'Change mobile number', `<span class="muted small">${esc(u.phone || 'Not set')}</span>`)}${li('/settings/blocked', 'Blocked providers', `<span class="muted small">${s.blocked.length || ''}</span>`)}${li('/settings/notifications', 'Notifications')}${btn('delete', 'Delete account')}</div>` : ''}
       <div class="list card flush">${li('/city', 'Country / region', `<span class="muted small">${DR.COUNTRIES[s.country].flag} ${esc(DR.COUNTRIES[s.country].name)}</span>`)}${btn('lang', 'Language', `<span class="muted small">${esc(DR.LANGS.find((l) => l[0] === s.lang)[1])}</span>`)}${btn('theme', 'Appearance', `<span class="muted small">${{ system: 'System', dark: 'Dark', light: 'Light' }[s.theme]}</span>`)}${btn('cache', 'Clear cached images', '<span class="muted small">2.1 MB</span>')}</div>
-      <div class="list card flush">${btn('feedback', 'Feedback')}${li('/page/help', 'Help centre')}${btn('rate', 'Rate Done Right')}${li('/page/guidelines', 'Community guidelines')}${li('/page/terms', 'Terms of service')}${li('/page/privacy', 'Privacy policy')}${li('/page/data', 'Personal data we collect')}${li('/page/third-party', 'Third-party data sharing')}${li('/page/about', 'About Done Right')}${btn('reset', 'Reset demo data')}</div>
+      <div class="list card flush">${btn('feedback', 'Feedback')}${li('/page/help', 'Help centre')}${btn('rate', 'Rate Done Right')}${li('/page/guidelines', 'Community guidelines')}${li('/page/terms', 'Terms of service')}${li('/page/privacy', 'Privacy policy')}${li('/page/data', 'Personal data we collect')}${li('/page/third-party', 'Third-party data sharing')}${li('/page/about', 'About Done Right')}${li('/admin', 'Trust & Safety console (demo)')}${btn('reset', 'Reset demo data')}</div>
       ${u ? '<div class="pad mb16"><button class="btn btn-ghost btn-block" id="logout">Log out</button></div>' : '<div class="pad mb16"><a class="btn btn-primary btn-block" href="#/auth?next=%2Fsettings">Sign in / Register</a></div>'}`,
       mount(el) {
         const on = (id, fn) => { const b = el.querySelector('#' + id); if (b) b.onclick = fn; };
         const pickSheet = (title, opts, cur, apply) => {
           const sh = DR.ui.sheet({ title, html: `<div class="list">${opts.map(([k, l]) => `<button class="list-item" data-v="${k}"><span>${l}</span>${k === cur ? icon('check', 18, 'brand') : ''}</button>`).join('')}</div>`, mount(x) { x.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (b) { sh.close(); apply(b.dataset.v); } }); } });
         };
-        on('lang', () => pickSheet('Language', DR.LANGS, s.lang, (v) => { DR.store.update((st) => { st.lang = v; }); document.documentElement.lang = v; }));
+        on('lang', () => pickSheet('Language', DR.LANGS, s.lang, (v) => DR.i18n.setLang(v)));
         on('theme', () => pickSheet('Appearance', [['system', 'Follow system'], ['dark', 'Dark'], ['light', 'Light']], s.theme, (v) => { DR.store.update((st) => { st.theme = v; }, { render: false }); DR.applyTheme(); DR.router.refresh(); }));
         on('cache', () => DR.ui.toast('Cache cleared'));
         on('rate', () => DR.ui.toast('Thanks! App store ratings open at launch.'));
         on('feedback', () => { const sh = DR.ui.sheet({ title: 'Feedback', html: '<textarea class="input" rows="5" placeholder="What can we do better?"></textarea><button class="btn btn-primary btn-block mt12" id="fs">Send</button>', mount(x) { x.querySelector('#fs').onclick = () => { sh.close(); DR.ui.toast('Thanks for your feedback!'); }; } }); });
         on('phone', () => DR.ui.toast('For security, changing your number requires OTP on both numbers — available at launch'));
-        on('logout', async () => { if (await DR.ui.confirm({ title: 'Log out?', ok: 'Log out' })) { DR.store.update((st) => { st.session = null; }, { render: false }); DR.router.go('/me', { replace: true }); } });
+        on('logout', async () => { if (await DR.ui.confirm({ title: 'Log out?', ok: 'Log out' })) { DR.store.setSession(null); DR.router.go('/me', { replace: true }); } });
         on('delete', async () => {
           if (await DR.ui.confirm({ title: 'Delete your account?', text: 'Your profile, provider listing, verification documents and history on this device will be permanently removed. This cannot be undone.', ok: 'Delete account', danger: true })) {
-            DR.store.update((st) => { delete st.users[st.session]; st.session = null; }, { render: false });
+            const id = DR.store.sessionId();
+            DR.files.collect(DR.store.s.users[id]).forEach((f) => DR.files.del(f));
+            DR.store.update((st) => {
+              delete st.users[id];
+              Object.keys(st.idRegistry).forEach((h) => { if (st.idRegistry[h] === id) delete st.idRegistry[h]; });
+              DR.store.audit({ actor: id, userId: id, item: 'Account', action: 'deleted (documents wiped)' });
+            }, { render: false });
+            DR.store.setSession(null);
             DR.ui.toast('Account deleted'); DR.router.go('/', { replace: true });
           }
         });

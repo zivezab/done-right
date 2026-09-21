@@ -46,7 +46,7 @@
     const C = DR.COUNTRIES[cc];
     const nearby = DR.data.providers().sort((a, b) => DR.data.dist(a) - DR.data.dist(b)).slice(0, 4);
     const b = banners(cc);
-    const unread = Object.values(S().threads).reduce((a, t) => a + (t.unread || 0), 0);
+    const unread = DR.chat.unreadTotal(DR.store.sessionId());
     return {
       tab: 'home',
       cls: 'home',
@@ -57,7 +57,7 @@
         <a class="icon-btn" href="#/cart" aria-label="Cart">${icon('cart')}${S().cart.length ? `<i class="dot-badge">${S().cart.length}</i>` : ''}</a>
         <a class="icon-btn" href="#/messages" aria-label="Messages">${icon('chat')}${unread ? `<i class="dot-badge">${unread}</i>` : ''}</a>
       </div>
-      <div class="pad"><a class="searchbar" href="#/search">${icon('search', 20, 'brand')}<span class="ellipsis">${DR.t('Search services, providers, shops')}</span>${icon('camera', 20)}</a></div>
+      <div class="pad"><a class="searchbar" href="#/search">${icon('search', 20, 'brand')}<span class="ellipsis">Search services, providers, shops</span>${icon('camera', 20)}</a></div>
 
       <div class="banner-wrap pad">
         <div class="banner-track" id="banner">${b.map((x) => `<a class="banner" href="#${x.go}" style="background:${x.bg}"><div class="banner-text"><h3>${x.t}</h3><p>${x.s}</p><span class="banner-cta">Book now ${icon('right', 14)}</span></div><div class="banner-art" aria-hidden="true"><span>${x.e}</span><span>${x.e2}</span></div></a>`).join('')}</div>
@@ -227,7 +227,7 @@
     return {
       title: 'All categories',
       tab: 'categories',
-      html: `${DR.ui.navbar({ title: `${DR.t('All categories')} · ${DR.ALL_SUBS.length}` })}
+      html: `${DR.ui.navbar({ title: `All categories · ${DR.ALL_SUBS.length}` })}
       <div class="sticky-sub pad">
         <div class="searchbar searchbar-outline">${icon('search', 18)}<input id="dq" type="search" placeholder="Filter ${DR.ALL_SUBS.length} services…" autocomplete="off"></div>
         <div class="mt8">${DR.ui.seg([['cat', 'By category'], ['az', 'A – Z']], dirView, 'view')}</div>

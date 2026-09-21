@@ -1,8 +1,8 @@
 /* Done Right — provider data (deterministic demo seed + user-registered providers),
- * availability engine, distance/fees, reviews and search. */
+ * booking policies, availability engine (memoised), distance/fees, reviews and fuzzy search. */
 (function (DR) {
   'use strict';
-  const { rng, pick, between, clamp, hash, pad, dateKey, parseKey, addDays, toMin, fromMin } = DR.u;
+  const { rng, pick, between, clamp, hash, pad, dateKey, parseKey, addDays, toMin, fromMin, slotTs } = DR.u;
   const S = () => DR.store.s;
 
   // ------------------------------------------------------------ names
@@ -47,18 +47,15 @@
   // ------------------------------------------------------------ credentials pools
   const B = (list) => ({ SG: list, MY: list });
   const CERTS = {
-    cleaning: { SG: [['WSQ Certificate in Environmental Cleaning', 'SkillsFuture Singapore'], ['Pest Control Worker Licence', 'National Environment Agency']], MY: [['Certified Cleaning Technician', 'IICRC'], ['CIDB Green Card', 'CIDB Malaysia']] },
-    repair: { SG: [['Licensed Electrical Worker (LEW)', 'Energy Market Authority'], ['Licensed Plumber', 'PUB'], ['WSQ Certificate in Building Maintenance', 'SkillsFuture Singapore']], MY: [['Wireman Competency Certificate', 'Suruhanjaya Tenaga'], ['Registered Plumber', 'SPAN'], ['CIDB Green Card', 'CIDB Malaysia']] },
-    massage: { SG: [['WSQ Certificate in Massage Therapy', 'SkillsFuture Singapore'], ['Standard First Aid + CPR/AED', 'Singapore Red Cross']], MY: [['SKM Level 3 Spa Therapy', 'Jabatan Pembangunan Kemahiran'], ['T&CM Practitioner Registration', 'Ministry of Health Malaysia']] },
+    cleaning: { SG: [['WSQ Certificate in Environmental Cleaning', 'SkillsFuture Singapore']], MY: [['Certified Cleaning Technician', 'IICRC'], ['CIDB Green Card', 'CIDB Malaysia']] },
+    repair: { SG: [['WSQ Certificate in Building Maintenance', 'SkillsFuture Singapore']], MY: [['CIDB Green Card', 'CIDB Malaysia']] },
+    massage: { SG: [['WSQ Certificate in Massage Therapy', 'SkillsFuture Singapore'], ['Standard First Aid + CPR/AED', 'Singapore Red Cross']], MY: [['SKM Level 3 Spa Therapy', 'Jabatan Pembangunan Kemahiran']] },
     laundry: B([['Professional Garment Care Certificate', 'Drycleaning & Laundry Institute']]),
     moving: { SG: [['Class 4 Driving Licence', 'Singapore Police Force'], ['WSQ Manual Handling', 'SkillsFuture Singapore']], MY: [['GDL Driving Licence', 'JPJ'], ['Manual Handling Safety', 'NIOSH Malaysia']] },
     'appliance-cleaning': { SG: [['WSQ Aircon Servicing Competency', 'SkillsFuture Singapore'], ['Refrigerant Handling Certificate', 'National Environment Agency']], MY: [['Refrigerant Handling Certificate', 'Department of Environment'], ['SKM Level 2 Air-Conditioning', 'Jabatan Pembangunan Kemahiran']] },
     beauty: { SG: [['CIDESCO Beauty Therapy Diploma', 'CIDESCO'], ['ITEC Level 3 Diploma in Beauty Therapy', 'ITEC']], MY: [['SKM Level 3 Beauty Therapy', 'Jabatan Pembangunan Kemahiran'], ['CIDESCO Beauty Therapy Diploma', 'CIDESCO']] },
     nanny: { SG: [['Infant Care Certificate', 'ECDA'], ['Standard First Aid + CPR/AED', 'Singapore Red Cross'], ['WSQ Confinement Care', 'SkillsFuture Singapore']], MY: [['Kursus Asuhan PERMATA', 'Jabatan Kebajikan Masyarakat'], ['First Aid & CPR', 'St John Ambulance Malaysia']] },
-    care: { SG: [['Registered Nurse', 'Singapore Nursing Board'], ['Caregiver Training Grant Course', 'Agency for Integrated Care'], ['Basic Cardiac Life Support', 'Singapore Resuscitation & First Aid Council']], MY: [['Registered Nurse', 'Malaysian Nursing Board'], ['Basic Life Support (BLS)', 'Malaysian Society of Anaesthesiologists']] },
-    physiotherapy: { SG: [['Registered Physiotherapist', 'Allied Health Professions Council']], MY: [['Registered Physiotherapist', 'Malaysian Allied Health Professions Council']] },
-    tcm: { SG: [['Registered TCM Physician', 'TCM Practitioners Board']], MY: [['Registered T&CM Practitioner', 'T&CM Council, Ministry of Health']] },
-    counselling: { SG: [['Registered Counsellor', 'Singapore Association for Counselling']], MY: [['Registered Counsellor', 'Lembaga Kaunselor Malaysia']] },
+    care: { SG: [['Caregiver Training Grant Course', 'Agency for Integrated Care'], ['Basic Cardiac Life Support', 'Singapore Resuscitation & First Aid Council']], MY: [['Basic Life Support (BLS)', 'Malaysian Society of Anaesthesiologists']] },
     tuition: { SG: [['Postgraduate Diploma in Education (PGDE)', 'National Institute of Education'], ['MOE-trained Teacher', 'Ministry of Education']], MY: [['Registered Teacher', 'Kementerian Pendidikan Malaysia'], ['Diploma Perguruan', 'Institut Pendidikan Guru']] },
     'special-needs': B([['Certificate in Special Needs Support', 'Autism Resource Centre'], ['Applied Behaviour Analysis (RBT)', 'BACB']]),
     language: B([['CELTA', 'Cambridge English'], ['TESOL Certificate', 'Trinity College London'], ['HSK Level 6', 'Chinese Testing International']]),
@@ -90,27 +87,18 @@
     'computer-repair': B([['CompTIA A+', 'CompTIA']]), 'data-recovery': B([['CompTIA A+', 'CompTIA']]), 'smart-home': B([['CompTIA Network+', 'CompTIA']]),
     business: B([['Certified Management Consultant (CMC)', 'ICMCI']]),
     accountant: { SG: [['Chartered Accountant (CA Singapore)', 'ISCA'], ['ACCA Member', 'ACCA']], MY: [['Chartered Accountant, CA(M)', 'Malaysian Institute of Accountants'], ['ACCA Member', 'ACCA']] },
-    'tax-filing': { SG: [['Accredited Tax Practitioner (Income Tax)', 'Singapore Chartered Tax Professionals']], MY: [['Licensed Tax Agent (Section 153)', 'Ministry of Finance Malaysia']] },
-    'legal-consult': { SG: [['Advocate & Solicitor, Supreme Court of Singapore', 'Singapore Academy of Law']], MY: [['Advocate & Solicitor, High Court of Malaya', 'Malaysian Bar']] },
-    'company-secretary': { SG: [['Qualified Company Secretary', 'Chartered Secretaries Institute of Singapore']], MY: [['Licensed Company Secretary', 'Companies Commission of Malaysia (SSM)']] },
     translator: B([['NAATI Certified Translator', 'NAATI']]), 'career-coach': B([['ICF Associate Certified Coach', 'International Coaching Federation']]),
-    'property-agent': { SG: [['Registered Salesperson', 'Council for Estate Agencies']], MY: [['Registered Estate Negotiator (REN)', 'Board of Valuers, Appraisers, Estate Agents & Property Managers']] },
-    'insurance-planner': { SG: [['M5, M9 & HI Certified Representative', 'Singapore College of Insurance']], MY: [['PCEIA Certified Agent', 'Malaysian Insurance Institute']] },
     'hr-payroll': { SG: [['IHRP Certified Professional', 'Institute for Human Resource Professionals']], MY: [['Certified HR Professional', 'MIHRM']] },
-    'work-pass-agent': { SG: [['Employment Agency Licence', 'Ministry of Manpower']], MY: [['Licensed Private Employment Agency', 'JTKSM']] },
     creative: B([['Adobe Certified Professional', 'Adobe'], ['Google Ads Search Certification', 'Google']]),
-    drone: { SG: [['Unmanned Aircraft Pilot Licence', 'CAAS']], MY: [['Drone Pilot Permit', 'CAAM']] },
     'seo-marketing': B([['Google Analytics Certification', 'Google'], ['Meta Certified Digital Marketing Associate', 'Meta']]),
-    events: { SG: [['Food Hygiene Certificate', 'Singapore Food Agency']], MY: [['Food Handler Training Certificate', 'Ministry of Health Malaysia']] },
-    renovation: { SG: [['HDB Registered Renovation Contractor', 'Housing & Development Board'], ['General Builder Class 2', 'Building and Construction Authority'], ['CaseTrust Renovation Accreditation', 'CASE Singapore']], MY: [['CIDB Registered Contractor (G3)', 'CIDB Malaysia'], ['Wireman Competency Certificate', 'Suruhanjaya Tenaga']] },
+    events: B([['Certified Event Planner', 'Event Planning Institute']]),
+    renovation: { SG: [['CaseTrust Renovation Accreditation', 'CASE Singapore']], MY: [['CIDB Green Card', 'CIDB Malaysia']] },
     'feng-shui': B([['Certified Feng Shui Consultant', 'International Feng Shui Association']]),
-    auto: { SG: [['Driving Instructor Licence', 'Singapore Police Force'], ['Nitec in Automotive Technology', 'ITE']], MY: [['Lesen Pengajar Memandu', 'JPJ'], ['SKM Level 3 Automotive', 'Jabatan Pembangunan Kemahiran']] },
+    auto: { SG: [['Nitec in Automotive Technology', 'ITE']], MY: [['SKM Level 3 Automotive', 'Jabatan Pembangunan Kemahiran']] },
     recycling: { SG: [['General Waste Collector Licence', 'National Environment Agency']], MY: [['Licensed Solid Waste Collector', 'SWCorp']] },
-    pets: { SG: [['Licensed Pet Groomer', 'Animal & Veterinary Service'], ['Certified Professional Dog Trainer (CPDT-KA)', 'CCPDT']], MY: [['Registered Pet Service Provider', 'Department of Veterinary Services'], ['Pet First Aid & CPR', 'Pet Tech']] },
-    'vet-home-visit': { SG: [['Licensed Veterinarian', 'Animal & Veterinary Service']], MY: [['Registered Veterinary Surgeon', 'Malaysian Veterinary Council']] },
+    pets: { SG: [['Certified Professional Dog Trainer (CPDT-KA)', 'CCPDT'], ['Pet First Aid & CPR', 'Pet Tech']], MY: [['Registered Pet Service Provider', 'Department of Veterinary Services'], ['Pet First Aid & CPR', 'Pet Tech']] },
     errands: { SG: [['Class 2B Motorcycle Licence', 'Singapore Police Force']], MY: [['Lesen Memandu B2', 'JPJ']] },
     lifestyle: B([['ICF Associate Certified Coach', 'International Coaching Federation']]),
-    'tour-guide': { SG: [['Licensed Tourist Guide', 'Singapore Tourism Board']], MY: [['Licensed Tourist Guide', 'MOTAC']] },
   };
   CERTS.installation = CERTS.repair;
   DR.CERT_SUGGESTIONS = (subIds, cc) => {
@@ -187,9 +175,9 @@
 
   function expFor(r, cc, g, primary, years, joinedMonths, area, role) {
     const C = DR.COUNTRIES[cc];
-    const now = new Date();
-    const joined = addMonths(now, -joinedMonths);
-    const out = [{ title: `Independent ${role}`, company: 'Self-employed via Done Right', type: 'Self-employed', location: `${area.n}, ${C.name}`, start: ym(joined), end: null, desc: `Serving customers across ${area.r === 'Central' || area.r === 'East' || area.r === 'West' || area.r === 'North' || area.r === 'North-East' ? `${area.r} ${C.name}` : area.r}.`, verified: true }];
+    const joined = addMonths(new Date(), -joinedMonths);
+    const regions = ['Central', 'East', 'West', 'North', 'North-East'];
+    const out = [{ title: `Independent ${role}`, company: 'Self-employed via Done Right', type: 'Self-employed', location: `${area.n}, ${C.name}`, start: ym(joined), end: null, desc: `Serving customers across ${regions.includes(area.r) ? `${area.r} ${C.name}` : area.r}.`, verified: true }];
     let remaining = years * 12 - joinedMonths;
     let cursor = joined;
     const aiSubs = ['ml-engineer', 'ai-expert', 'genai-engineer', 'data-scientist', 'data-engineer'];
@@ -224,6 +212,14 @@
   };
   const OPEN = ['Professional, punctual and friendly.', 'Verified professional — quality you can trust!', 'Quality work with fair, transparent pricing.', 'Reliable and detail-oriented.'];
 
+  // ------------------------------------------------------------ booking policies
+  DR.defaultPolicy = () => ({ mode: 'instant', approvalHours: 12, rescheduleLockHours: 24, maxReschedules: 2, freeCancelHours: 24, leadMinutes: 60, advanceDays: 30, bufferMinutes: 0 });
+  DR.policy = (p) => Object.assign(DR.defaultPolicy(), (p && p.policy) || {});
+  function policyFor(r, g) {
+    const req = ['tech', 'business', 'renovation', 'events', 'creative', 'care', 'nanny'].includes(g.id);
+    return { mode: r() < (req ? 0.6 : 0.2) ? 'request' : 'instant', approvalHours: pick(r, [2, 6, 12, 24]), rescheduleLockHours: pick(r, [6, 12, 24, 48]), maxReschedules: pick(r, [1, 2, 3]), freeCancelHours: pick(r, [12, 24, 48]), leadMinutes: pick(r, [60, 120, 180]), advanceDays: pick(r, [14, 21, 30, 60]), bufferMinutes: pick(r, [0, 0, 15, 30]) };
+  }
+
   // ------------------------------------------------------------ availability patterns
   const R1 = (a, b) => [[a, b]];
   function weekly(map) { const w = {}; for (let d = 0; d < 7; d++) w[d] = map[d] || []; return w; }
@@ -237,9 +233,9 @@
   DR.AVAIL_PRESETS = PATTERNS;
   function availFor(r, g) {
     const pref = { tuition: ['evening', 'evening', 'split'], music: ['evening', 'split'], language: ['evening', 'weekday'], massage: ['late', 'fullweek'], tech: ['weekday', 'evening', 'split'], business: ['weekday'], sports: ['evening', 'fullweek'], beauty: ['fullweek', 'late'] }[g.id] || ['fullweek', 'weekday', 'split'];
-    return { slotMinutes: g.id === 'massage' ? 30 : 60, weekly: PATTERNS[pick(r, pref)](), overrides: {}, busy: between(r, 10, 35) };
+    return { slotMinutes: g.id === 'massage' ? 30 : 60, weekly: PATTERNS[pick(r, pref)](), overrides: {}, blocks: {}, busy: between(r, 10, 35) };
   }
-  DR.defaultAvailability = () => ({ slotMinutes: 60, weekly: PATTERNS.weekday(), overrides: {} });
+  DR.defaultAvailability = () => ({ slotMinutes: 60, weekly: PATTERNS.weekday(), overrides: {}, blocks: {} });
 
   // ------------------------------------------------------------ pricing helpers
   function nice(x) {
@@ -249,6 +245,7 @@
     return r5 % 10 === 0 ? r5 - 2 : r5 + 3;
   }
   const catalogPrice = (sub, cc) => nice(sub.price * DR.COUNTRIES[cc || S().country].rate);
+  DR.nicePrice = nice;
 
   // ------------------------------------------------------------ seed generation
   const HOT_GROUPS = ['massage', 'cleaning', 'tuition', 'tech', 'sports', 'music', 'beauty', 'repair', 'care'];
@@ -278,6 +275,16 @@
     out.forEach((p) => { seedIndex[p.id] = p; });
     return (seeds[cc] = out);
   }
+  function licenceCerts(r, cc, subs) {
+    const out = [];
+    subs.forEach((s) => DR.lic.rules(s.id, cc).forEach((options) => {
+      const id = options[0];
+      if (out.some((c) => c.licenceId === id)) return;
+      const L = DR.LICENCES[id];
+      out.push({ name: L.name, issuer: L.issuer, licenceId: id, issued: ym(addMonths(new Date(), -between(r, 6, 60))), expiry: ym(addMonths(new Date(), between(r, 8, 36))), credentialId: `${id.split('-')[1].toUpperCase().slice(0, 4)}-${between(r, 10000, 99999)}`, verified: true, registerCheck: { status: 'Active', source: L.register, checkedAt: Date.now() - between(r, 1, 60) * 86400000 } });
+    }));
+    return out;
+  }
   function makeProvider(r, cc, g, subs, used) {
     let id;
     do { id = String(between(r, 100000, 999999)); } while (used.has(id));
@@ -293,7 +300,7 @@
     const joinedMonths = between(r, 1, Math.min(60, yearsExp * 12));
     const reviews = between(r, 3, 420);
     const certPool = (CERTS[primary.id] || CERTS[g.id] || { SG: [], MY: [] })[cc];
-    const certs = certPool.slice().sort(() => r() - 0.5).slice(0, between(r, 1, Math.min(3, certPool.length))).map(([cn, issuer]) => ({ name: cn, issuer, issued: ym(addMonths(new Date(), -between(r, 6, 96))), credentialId: `${issuer.replace(/[^A-Z]/g, '').slice(0, 3) || 'CRT'}-${between(r, 100000, 999999)}`, verified: r() < 0.9 }));
+    const certs = licenceCerts(r, cc, subs).concat(certPool.slice().sort(() => r() - 0.5).slice(0, between(r, 1, Math.min(3, Math.max(1, certPool.length)))).filter(Boolean).map(([cn, issuer]) => ({ name: cn, issuer, issued: ym(addMonths(new Date(), -between(r, 6, 96))), credentialId: `${issuer.replace(/[^A-Z]/g, '').slice(0, 3) || 'CRT'}-${between(r, 100000, 999999)}`, verified: r() < 0.9 })));
     const shop = r() < 0.5 ? company(r, cc, g.id) : null;
     const langs = languagesFor(r, cc, eth, g, subs);
     const aiLike = ['ml-engineer', 'ai-expert', 'genai-engineer', 'data-scientist'].includes(primary.id);
@@ -302,6 +309,7 @@
       const base = catalogPrice(s, cc);
       return { subId: s.id, name: s.name, price: base === 0 ? 0 : nice(base * (0.85 + r() * 0.5)), unit: s.unit, duration: s.duration, sold: between(r, 1, 320), assessed: pick(r, ['Good', 'Excellent', 'Excellent', 'Outstanding']), desc: '' };
     });
+    const bgNeeded = subs.some((s) => DR.lic.bgRequired(s.id));
     return {
       id, country: cc, name, gender, age, eth, area,
       lat: area.lat + (r() - 0.5) * 0.028, lng: area.lng + (r() - 0.5) * 0.028,
@@ -315,9 +323,10 @@
       education: eduFor(r, cc, g, primary, age, area),
       experience: expFor(r, cc, g, primary, yearsExp, joinedMonths, area, role),
       certs,
-      verified: { identity: true, phone: true, assessment: r() < 0.85, certs: certs.some((c) => c.verified), education: true, background: g.bg ? true : r() < 0.5, business: !!shop },
+      verified: { identity: true, phone: true, liveness: true, assessment: r() < 0.85, certs: certs.some((c) => c.verified), education: true, background: bgNeeded || r() < 0.5, business: !!shop, licensed: certs.some((c) => c.licenceId) },
       shop, services,
       availability: availFor(r, g),
+      policy: policyFor(r, g),
       metrics: [between(r, 88, 98), between(r, 86, 99), between(r, 85, 97), between(r, 88, 99), between(r, 86, 99), between(r, 84, 96)],
       photos: between(r, 3, 6), photoMatch: between(r, 88, 98), uploaded: between(r, 1, 120),
       travelBase: cc === 'SG' ? pick(r, [0, 3, 5, 8]) : pick(r, [0, 5, 10, 15]),
@@ -337,8 +346,8 @@
     const area = DR.area(pv.area, cc);
     const ver = u.verification || {};
     const ok = (x) => x && x.status === 'verified';
-    const subs = (pv.services || []).filter((s) => s.active !== false).map((s) => s.subId);
-    const allSubs = subs.length ? subs : (pv.subs || []);
+    const active = (pv.services || []).filter((s) => s.active !== false);
+    const allSubs = active.length ? active.map((s) => s.subId) : (pv.subs || []);
     const groupId = allSubs.length && DR.SUB[allSubs[0]] ? DR.SUB[allSubs[0]].groupId : 'lifestyle';
     const g = DR.GROUP[groupId];
     const primary = DR.SUB[allSubs[0]];
@@ -346,6 +355,15 @@
     const completed = S().orders.filter((o) => o.providerId === u.id && ['to_review', 'completed'].includes(o.status)).length;
     const jitter = (hash(u.id) % 1000) / 1000 - 0.5;
     const role = primary ? (g.roleFromSub ? primary.name.replace(/\s*\(.*\)/, '') : g.role) : 'Service Provider';
+    const services = active.map((s) => {
+      const chk = DR.lic.check(u, s.subId);
+      return {
+        subId: s.subId, name: s.name || (DR.SUB[s.subId] || {}).name, price: +s.price || 0, unit: s.unit, duration: +s.duration || 60,
+        sold: S().orders.filter((o) => o.providerId === u.id && o.subId === s.subId && o.status !== 'cancelled').length, assessed: null, desc: s.desc || '',
+        locked: !chk.ok && (chk.regulated || chk.bgRequired), lic: chk,
+      };
+    });
+    const certs = (ver.certifications || []).map((c) => ({ name: c.name, issuer: c.issuer, licenceId: c.licenceId, issued: c.issued, expiry: c.expiry, credentialId: c.credentialId, url: c.url, verified: c.status === 'verified', status: c.status, file: c.file, registerCheck: c.registerCheck }));
     return {
       id: u.id, isUser: true, country: cc, name: u.name || 'New provider', gender: u.gender || 'M', age: ageFrom(u.dob), area,
       lat: area.lat + jitter * 0.02, lng: area.lng - jitter * 0.02, groupId, subs: allSubs, role,
@@ -356,13 +374,14 @@
       joinedMonths: monthsSince(pv.createdAt || Date.now()), yearsExp: +pv.years || 1,
       education: (ver.education || []).map((e) => ({ school: e.school, degree: e.degree, field: e.field, start: e.start, end: e.end, grade: e.grade, verified: e.status === 'verified', status: e.status, file: e.file })),
       experience: (ver.experience || []).map((e) => ({ title: e.title, company: e.company, type: e.type, location: e.location, start: e.start, end: e.current ? null : e.end, desc: e.desc, verified: e.status === 'verified', status: e.status, file: e.file })),
-      certs: (ver.certifications || []).map((c) => ({ name: c.name, issuer: c.issuer, issued: c.issued, expiry: c.expiry, credentialId: c.credentialId, url: c.url, verified: c.status === 'verified', status: c.status, file: c.file })),
-      verified: { identity: ok(ver.identity), phone: true, assessment: false, certs: (ver.certifications || []).some(ok), education: (ver.education || []).some(ok), background: ok(ver.background), business: ok(ver.business) },
+      certs,
+      verified: { identity: ok(ver.identity), phone: true, liveness: !!(ver.identity && ver.identity.liveness === 'passed'), assessment: false, certs: certs.some((c) => c.verified), education: (ver.education || []).some(ok), background: ok(ver.background), business: ok(ver.business), licensed: certs.some((c) => c.licenceId && c.verified) },
       identityPending: ver.identity && ver.identity.status === 'pending',
       shop: ok(ver.business) ? ver.business.name : null, businessDoc: ver.business && ver.business.file,
-      services: (pv.services || []).filter((s) => s.active !== false).map((s) => ({ subId: s.subId, name: s.name || (DR.SUB[s.subId] || {}).name, price: +s.price || 0, unit: s.unit, duration: +s.duration || 60, sold: S().orders.filter((o) => o.providerId === u.id && o.subId === s.subId && o.status !== 'cancelled').length, assessed: null, desc: s.desc || '' })),
+      services: services.filter((s) => !s.locked), lockedServices: services.filter((s) => s.locked),
       availability: pv.availability || DR.defaultAvailability(),
-      metrics: null, photos: 1, photoFile: u.avatar && u.avatar.id, photoMatch: null, uploaded: 0,
+      policy: pv.policy || DR.defaultPolicy(),
+      metrics: null, photos: 1, photoFile: u.avatar && u.avatar.id, photoMatch: ver.identity && ver.identity.faceMatch, uploaded: 0,
       travelBase: +pv.travelFee || 0, serves: pv.serves || 'all', isNew: true, activeToday: true, coupon: false, responseMins: 15,
       status: pv.status, paused: pv.paused, skills: pv.skills || [],
     };
@@ -375,6 +394,7 @@
     const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
     return 2 * Rr * Math.asin(Math.sqrt(x));
   }
+  const distCache = new Map();
 
   // ------------------------------------------------------------ reviews
   const REVIEW_LINES = {
@@ -390,9 +410,19 @@
     care: ['Caring and attentive with my elderly mother.', 'Very professional, with clear updates after each visit.'],
     nanny: ['Our baby loved her — very gentle and reliable.', 'Trustworthy and punctual every time.'],
   };
+  DR.REVIEW_LINES = REVIEW_LINES;
+  const REPLY_LINES = ['Thank you so much for your kind words! Looking forward to seeing you again 😊', 'Thanks for booking with me — it was a pleasure!', 'Appreciate the review! Let me know whenever you need help again.', 'Thank you! Glad the session helped.'];
   const reviewCache = {};
 
-  // ------------------------------------------------------------ availability engine
+  // ------------------------------------------------------------ availability engine (memoised per store revision + minute)
+  const memo = new Map();
+  let memoRev = -1, memoMin = -1;
+  function cached(k, fn) {
+    const rv = DR.store.rev, mn = Math.floor(Date.now() / 60000);
+    if (rv !== memoRev || mn !== memoMin) { memo.clear(); memoRev = rv; memoMin = mn; }
+    if (memo.has(k)) return memo.get(k);
+    const v = fn(); memo.set(k, v); return v;
+  }
   DR.avail = {
     ranges(p, key) {
       const a = p.availability || {};
@@ -400,37 +430,96 @@
       if (ov) return ov.off ? [] : ov.ranges || [];
       return (a.weekly && a.weekly[parseKey(key).getDay()]) || [];
     },
-    slots(p, key, duration) {
+    dayIndex(key) { return Math.round((parseKey(key) - parseKey(dateKey(new Date()))) / 86400000); },
+    // opts: { excludeOrder, ignoreLead, now }
+    slots(p, key, duration, opts = {}) {
       const a = p.availability || {};
+      const pol = DR.policy(p);
       const step = a.slotMinutes || 60;
       const block = Math.min(duration || step, 240);
-      const now = new Date();
-      const minStart = key === dateKey(now) ? now.getHours() * 60 + now.getMinutes() + 60 : -1;
-      const booked = S().orders.filter((o) => o.providerId === p.id && o.date === key && o.status !== 'cancelled').map((o) => [toMin(o.time), toMin(o.time) + Math.min(o.duration || 60, 240)]);
+      const now = opts.now || Date.now();
+      const outOfWindow = this.dayIndex(key) > pol.advanceDays;
+      const minTs = now + (opts.ignoreLead ? 0 : pol.leadMinutes * 60000);
+      const buf = pol.bufferMinutes || 0;
+      const booked = S().orders.filter((o) => o.providerId === p.id && o.date === key && o.status !== 'cancelled' && o.id !== opts.excludeOrder)
+        .map((o) => ({ s: toMin(o.time) - buf, e: toMin(o.time) + Math.min(o.duration || 60, 240) + buf, id: o.id, exact: toMin(o.time) }));
+      const blocks = (a.blocks && a.blocks[key]) || [];
       const out = [];
       for (const [s, e] of this.ranges(p, key)) {
         for (let t = toMin(s); t + Math.min(block, step) <= toMin(e); t += step) {
           const time = fromMin(t);
-          const clash = booked.some(([bs, be]) => t < be && t + block > bs);
+          const b = booked.find((x) => t < x.e && t + block > x.s);
+          const blocked = blocks.includes(time);
           const seedBusy = !p.isUser && (hash(p.id + key + time) % 100) < (a.busy || 0);
-          const past = t < minStart;
-          out.push({ time, ok: !clash && !seedBusy && !past, why: clash || seedBusy ? 'booked' : past ? 'past' : '' });
+          const past = slotTs(key, time) < minTs;
+          const ok = !b && !blocked && !seedBusy && !past && !outOfWindow;
+          out.push({ time, ok, why: b || seedBusy ? 'booked' : blocked ? 'blocked' : past ? 'past' : outOfWindow ? 'window' : '', orderId: b && b.exact === t ? b.id : (b ? b.id : null) });
         }
       }
       return out;
     },
     next(p, duration) {
       if (p.paused) return null;
-      const today = new Date();
-      for (let i = 0; i < 21; i++) {
-        const key = dateKey(addDays(today, i));
-        const s = this.slots(p, key, duration).find((x) => x.ok);
-        if (s) return { key, time: s.time, day: i };
-      }
-      return null;
+      return cached(`n|${p.id}|${duration || 0}`, () => {
+        const today = new Date();
+        const max = Math.min(DR.policy(p).advanceDays, 30);
+        for (let i = 0; i <= max; i++) {
+          const key = dateKey(addDays(today, i));
+          const s = this.slots(p, key, duration).find((x) => x.ok);
+          if (s) return { key, time: s.time, day: i };
+        }
+        return null;
+      });
     },
-    count(p, key, duration) { return this.slots(p, key, duration).filter((x) => x.ok).length; },
+    count(p, key, duration) { return cached(`c|${p.id}|${key}|${duration || 0}`, () => this.slots(p, key, duration).filter((x) => x.ok).length); },
   };
+
+  // ------------------------------------------------------------ fuzzy search
+  function lev(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 9;
+    const dp = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      let prev = dp[0]; dp[0] = i;
+      for (let j = 1; j <= b.length; j++) { const tmp = dp[j]; dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = tmp; }
+    }
+    return dp[b.length];
+  }
+  const tokenize = (s) => s.toLowerCase().replace(/[^a-z0-9+#\s/-]/g, ' ').split(/[\s/-]+/).filter(Boolean);
+  function termScore(term, words) {
+    let best = 0;
+    for (const w of words) {
+      if (w === term) return 3;
+      if (term.length <= 2) continue;
+      if (w.startsWith(term)) best = Math.max(best, 2.5);
+      else if (term.length >= 4 && w.includes(term)) best = Math.max(best, 2);
+      else if (term.length >= 4) {
+        const tol = term.length >= 7 ? 2 : 1;
+        if (lev(term, w) <= tol || (w.length > term.length && lev(term, w.slice(0, term.length)) <= tol - (tol > 1 ? 1 : 0))) best = Math.max(best, 1.5);
+      }
+    }
+    return best;
+  }
+  // every query term must match (AND); returns 0 when not matched
+  // strict: every term must match (AND); any: partial matches score proportionally (fallback)
+  function textScore(terms, text, any = false) {
+    const words = tokenize(text);
+    let total = 0, hit = 0;
+    for (const t of terms) { const sc = termScore(t, words); if (!sc) { if (!any) return 0; continue; } total += sc; hit++; }
+    return any ? (hit ? total / terms.length : 0) : total;
+  }
+  function queries(raw) {
+    const base = tokenize(raw);
+    const out = [base];
+    Object.entries(DR.SYNONYMS).forEach(([k, v]) => {
+      const kt = tokenize(k);
+      const idx = base.findIndex((_, i) => kt.every((w, j) => base[i + j] === w || (w.length >= 5 && base[i + j] && lev(base[i + j], w) <= 1)));
+      if (idx >= 0) {
+        v.split(' ').forEach((alt) => { const q = base.slice(0, idx).concat(tokenize(alt), base.slice(idx + kt.length)); if (q.length) out.push(q); });
+      }
+    });
+    return out;
+  }
+  DR.fuzzy = { lev, tokenize, textScore, queries };
 
   // ------------------------------------------------------------ public data API
   DR.data = {
@@ -443,7 +532,7 @@
     },
     providers(cc) {
       cc = cc || S().country;
-      const users = Object.values(S().users).filter((u) => u.provider && u.provider.status === 'live' && (u.country || 'SG') === cc).map(fromUser);
+      const users = Object.values(S().users).filter((u) => u.provider && u.provider.status === 'live' && (u.country || 'SG') === cc).map(fromUser).filter((p) => p.services.length);
       return users.concat(genCountry(cc)).filter((p) => !S().blocked.includes(p.id));
     },
     provider(id) {
@@ -451,7 +540,12 @@
       if (!seedIndex[id]) { genCountry('SG'); genCountry('MY'); }
       return seedIndex[id] || null;
     },
-    dist(p) { return distKm(this.here(), p); },
+    dist(p) {
+      const h = this.here();
+      const k = `${h.lat},${h.lng}|${p.id}|${p.lat}`;
+      if (!distCache.has(k)) { if (distCache.size > 8000) distCache.clear(); distCache.set(k, distKm(h, p)); }
+      return distCache.get(k);
+    },
     distLabel(p) { const d = this.dist(p); return d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`; },
     fee(p, mode) {
       if (mode === 'online') return 0;
@@ -462,11 +556,13 @@
     minPrice(p) { const prices = p.services.map((s) => s.price).filter((x) => x > 0); return prices.length ? Math.min(...prices) : 0; },
     sold(sub) { return 200 + (hash(sub.id + S().country) % 60000); },
     subRating(sub) { return 96 + (hash(sub.id) % 4); },
-    bySub(subId, cc) { return this.providers(cc).filter((p) => p.subs.includes(subId)).sort((a, b) => this.dist(a) - this.dist(b)); },
+    bySub(subId, cc) { return this.providers(cc).filter((p) => p.services.some((s) => s.subId === subId)).sort((a, b) => this.dist(a) - this.dist(b)); },
     byGroup(gid, cc) { return this.providers(cc).filter((p) => p.groupId === gid || p.subs.some((s) => DR.SUB[s] && DR.SUB[s].groupId === gid)); },
     mode(p) { return (DR.GROUP[p.groupId] || {}).mode || 'onsite'; },
     reviews(p) {
-      const mine = S().reviews.filter((x) => x.providerId === p.id).sort((a, b) => b.date - a.date);
+      const replies = S().replies || {};
+      const withReply = (r) => (replies[r.id] ? Object.assign({}, r, { reply: replies[r.id] }) : r);
+      const mine = S().reviews.filter((x) => x.providerId === p.id).sort((a, b) => b.date - a.date).map(withReply);
       if (p.isUser) return mine;
       if (!reviewCache[p.id]) {
         const r = rng('reviews-' + p.id);
@@ -474,24 +570,40 @@
         const list = [];
         for (let i = 0; i < Math.min(p.reviews, 30); i++) {
           const anon = r() < 0.35;
-          list.push({ id: `${p.id}-r${i}`, name: anon ? 'Anonymous user' : `u${between(r, 10000000, 99999999)}`, anon, vip: r() < 0.15, repeat: r() < 0.25, stars: r() < 0.86 ? 5 : r() < 0.75 ? 4 : 3, text: pick(r, pool), date: Date.now() - between(r, 1, 150) * 86400000 - between(r, 0, 86400000), area: pick(r, DR.AREAS[p.country]).n, useful: between(r, 0, 40), sub: p.services[between(r, 0, p.services.length - 1)].name, photos: r() < 0.1 });
+          const svc = p.services[between(r, 0, p.services.length - 1)];
+          const date = Date.now() - between(r, 1, 150) * 86400000 - between(r, 0, 86400000);
+          const photoCount = r() < 0.18 ? between(r, 1, 3) : 0;
+          list.push({
+            id: `${p.id}-r${i}`, name: anon ? 'Anonymous user' : `u${between(r, 10000000, 99999999)}`, anon, vip: r() < 0.15, repeat: r() < 0.25,
+            stars: r() < 0.86 ? 5 : r() < 0.75 ? 4 : 3, text: pick(r, pool), date, area: pick(r, DR.AREAS[p.country]).n, useful: between(r, 0, 40),
+            sub: svc.name, subId: svc.subId, verified: true, seedPhotos: photoCount,
+            reply: r() < 0.22 ? { text: pick(r, REPLY_LINES), ts: date + between(r, 1, 48) * 3600000 } : null,
+          });
         }
         reviewCache[p.id] = list.sort((a, b) => b.date - a.date);
       }
-      return mine.concat(reviewCache[p.id]);
+      return mine.concat(reviewCache[p.id].map(withReply));
     },
     search(q) {
       const raw = q.toLowerCase().trim();
       if (!raw) return { subs: [], groups: [], providers: [] };
-      const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const has = (text, term) => (term.length <= 3 ? new RegExp(`\\b${escRe(term)}\\b`, 'i').test(text) : text.includes(term));
-      const terms = [raw];
-      Object.entries(DR.SYNONYMS).forEach(([k, v]) => { if (has(raw, k)) terms.push(v); });
-      const words = raw.split(/\s+/).filter(Boolean);
-      const match = (text) => { const t = text.toLowerCase(); return terms.some((x) => has(t, x)) || words.every((w) => has(t, w)) || terms.slice(1).some((v) => v.split(' ').some((w) => w.length > 3 && t.includes(w))); };
-      const subs = DR.ALL_SUBS.filter((s) => match(`${s.name} ${DR.GROUP[s.groupId].name}`));
-      const groups = DR.GROUPS.filter((g) => match(g.name));
-      const providers = this.providers().filter((p) => p.id === raw || match(`${p.name} ${p.shop || ''} ${p.role} ${p.subs.map((id) => (DR.SUB[id] || {}).name).join(' ')}`)).sort((a, b) => this.dist(a) - this.dist(b)).slice(0, 40);
+      const qs = queries(raw);
+      let any = false;
+      const best = (text) => Math.max(...qs.map((t) => textScore(t, text, any)));
+      const rankSubs = () => DR.ALL_SUBS.map((s) => ({ s, sc: best(s.name) * 1.2 || best(`${s.name} ${DR.GROUP[s.groupId].name}`) * 0.8 }))
+        .filter((x) => x.sc > 0).sort((a, b) => b.sc - a.sc || this.sold(b.s) - this.sold(a.s)).map((x) => x.s);
+      let subs = rankSubs();
+      if (!subs.length && qs[0].length > 1) { any = true; subs = rankSubs().slice(0, 20); }
+      const groups = DR.GROUPS.filter((g) => best(g.name) > 0);
+      const list = this.providers();
+      const providers = list.map((p) => {
+        if (p.id === raw) return { p, sc: 100 };
+        if (!p._text) p._text = `${p.name} ${p.shop || ''} ${p.role} ${p.subs.map((id) => (DR.SUB[id] || {}).name).join(' ')}`;
+        const sc = best(p._text);
+        if (!sc) return null;
+        const n = DR.avail.next(p);
+        return { p, sc: sc * 3 + (p.skill || 4) + (n && n.day === 0 ? 1 : 0) - this.dist(p) / 10 };
+      }).filter(Boolean).sort((a, b) => b.sc - a.sc).slice(0, 40).map((x) => x.p);
       return { subs, groups, providers };
     },
     fromUser,
@@ -512,17 +624,19 @@
       return `<span class="avail ${n.day === 0 ? '' : 'avail-later'}"><b>${compact ? day : day === 'Today' ? 'Available today' : day === 'Tmrw' ? 'Tomorrow' : `Next: ${day}`}</b><i>${n.time}</i></span>`;
     },
     rating(p) { return p.skill ? `<span class="rate">${DR.ui.icon('star', 13, 'fill')}${p.skill}</span>` : '<span class="tag tag-blue">New</span>'; },
+    modeChip(p) { return DR.policy(p).mode === 'instant' ? `<span class="chip-xs chip-instant">${DR.ui.icon('zap', 11)}Instant book</span>` : ''; },
     provider(p) {
       const U = DR.ui;
-      const vchips = [p.verified.identity ? `<span class="chip-xs chip-ok">${U.icon('shield', 11)}ID verified</span>` : '', p.verified.certs ? `<span class="chip-xs chip-ok">${U.icon('award', 11)}Certified</span>` : ''].join('');
+      const licensed = p.services.some((s) => DR.lic.regulated(s.subId, p.country));
+      const vchips = [licensed ? `<span class="chip-xs chip-ok">${U.icon('shield', 11)}Licensed</span>` : p.verified.identity ? `<span class="chip-xs chip-ok">${U.icon('shield', 11)}ID verified</span>` : '', p.verified.certs && !licensed ? `<span class="chip-xs chip-ok">${U.icon('award', 11)}Certified</span>` : ''].join('');
       return `<a class="pcard" href="#/provider/${p.id}">
         <div class="pcard-img">${this.pimg(p)}</div>
         <div class="pcard-body">
-          <div class="row gap6 nowrap"><b class="pcard-name ellipsis">${esc(p.name)}</b>${p.isNew ? '<span class="tag tag-green">New</span>' : ''}<span class="grow"></span>${this.availTag(p, true)}</div>
-          <div class="chips-xs">${p.age ? `<span class="chip-xs">${p.age} yrs</span>` : ''}<span class="chip-xs">${esc(p.role)}</span>${p.coupon ? '<span class="chip-xs chip-coupon">Coupon</span>' : ''}${vchips}</div>
-          <div class="row gap10 small nowrap">${this.rating(p)}<span class="muted">from ${U.money(this.minPriceOf(p), p.country)}</span><span class="muted">${DR.u.compact(p.jobs)} jobs</span><span class="muted hide-xs">${p.positive}% positive</span></div>
-          <div class="ellipsis muted small">${esc(p.bio || p.headline)}</div>
-          <div class="row between xs muted nowrap"><span class="ellipsis">${U.icon('store', 13)} ${esc(p.shop || 'Independent pro')}</span><span class="nowrap">${U.icon('pin', 13)} ${DR.data.distLabel(p)}</span></div>
+          <div class="row gap6 nowrap"><b class="pcard-name ellipsis" data-no-i18n>${esc(p.name)}</b>${p.isNew ? '<span class="tag tag-green">New</span>' : ''}<span class="grow"></span>${this.availTag(p, true)}</div>
+          <div class="chips-xs">${p.age ? `<span class="chip-xs">Age ${p.age}</span>` : ''}<span class="chip-xs">${esc(p.role)}</span>${this.modeChip(p)}${p.coupon ? '<span class="chip-xs chip-coupon">Coupon</span>' : ''}${vchips}</div>
+          <div class="row gap10 small nowrap">${this.rating(p)}<span class="muted">from ${U.money(DR.data.minPrice(p), p.country)}</span><span class="muted">${DR.u.compact(p.jobs)} jobs</span><span class="muted hide-xs">${p.positive}% positive</span></div>
+          <div class="ellipsis muted small" data-no-i18n>${esc(p.bio || p.headline)}</div>
+          <div class="row between xs muted nowrap"><span class="ellipsis">${U.icon('store', 13)} <span ${p.shop ? 'data-no-i18n' : ''}>${esc(p.shop || 'Independent pro')}</span></span><span class="nowrap">${U.icon('pin', 13)} ${DR.data.distLabel(p)}</span></div>
         </div></a>`;
     },
     minPriceOf(p) { return DR.data.minPrice(p); },
@@ -536,7 +650,7 @@
         <div class="row gap6 nowrap"><span class="tag tag-select">Select</span><b class="ellipsis">${esc(sub.name)}</b></div>
         <div class="gold xs nowrap">${DR.u.compact(DR.data.sold(sub))} booked <span class="sep">|</span> ${esc(g.arrival)}</div>
         ${opts.desc ? `<div class="muted small ellipsis">${esc(g.blurb)}</div>` : ''}
-        <div class="row between"><span class="price">${DR.cards.priceHTML(catalogPrice(sub), sub.unit)}</span><span class="btn btn-primary btn-xs">Book</span></div>
+        <div class="row between"><span class="price">${DR.cards.priceHTML(catalogPrice(sub), sub.unit)}</span><span class="btn btn-primary btn-xs">${DR.isQuoteBased && DR.isQuoteBased(sub) ? 'Get quotes' : 'Book'}</span></div>
       </div></a>`;
     },
   };

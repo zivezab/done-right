@@ -442,6 +442,6 @@
     vocal: 'singing', plumber: 'plumbing plumber', electrician: 'electrical electrician', movers: 'moving', mover: 'moving', massage: 'massage tui spa reflexology',
     spa: 'spa massage', nails: 'manicure pedicure', lawyer: 'legal', tax: 'tax filing accountant', gym: 'personal trainer fitness', pt: 'personal trainer',
     psle: 'primary tuition', spm: 'secondary tuition', 'o level': 'secondary tuition', 'a level': 'jc tuition', physio: 'physiotherapist', nurse: 'nursing nurse',
-    doctor: 'vet tcm physician nurse', dog: 'dog pet', cat: 'pet', aircon: 'aircon', wifi: 'wi-fi network', data: 'data scientist engineer recovery',
+    doctor: 'vet tcm physician nurse', coach: 'coach instructor trainer', lesson: 'lessons tutor teacher instructor', lessons: 'lessons tutor teacher instructor', class: 'classes lessons instructor', cleaner: 'cleaning', repairman: 'repair handyman', fix: 'repair', dog: 'dog pet', cat: 'pet', aircon: 'aircon', wifi: 'wi-fi network', data: 'data scientist engineer recovery',
   };
 })(window.DR);

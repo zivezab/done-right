@@ -7,37 +7,62 @@
   <meta name="description" content="Done Right — book verified home, lifestyle and professional services in Singapore and Malaysia: cleaning, repairs, massage, tuition, swimming, singing, software, ML and AI experts.">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta property="og:site_name" content="Done Right">
+  <meta property="og:image" content="assets/icon.svg">
+  <link rel="alternate" hreflang="en" href="./">
+  <link rel="alternate" hreflang="zh-Hans" href="./?lang=zh">
+  <link rel="alternate" hreflang="ms" href="./?lang=ms">
   <title>Done Right</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon.svg">
+  <link rel="preconnect" href="https://www.onemap.gov.sg">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/app.css?v=2.0">
   <script>
-    // apply saved theme before first paint
-    try {
-      var s = JSON.parse(localStorage.getItem('doneright.state.v1') || '{}');
-      var t = s.theme || 'dark';
-      if (t === 'system') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-      document.documentElement.dataset.theme = t;
-    } catch (e) {}
+    // isolated storage for the test runner (?sandbox=1) and ?lang= deep links; apply saved theme before first paint
+    (function () {
+      var q = new URLSearchParams(location.search);
+      if (q.get('sandbox')) { window.DR_STORAGE_KEY = 'doneright.sandbox.' + q.get('sandbox'); window.DR_FILES_DB = 'doneright-files-sandbox'; }
+      var key = window.DR_STORAGE_KEY || 'doneright.state.v1';
+      try {
+        var s = JSON.parse(localStorage.getItem(key) || '{}');
+        if (q.get('lang') && ['en', 'zh', 'ms'].indexOf(q.get('lang')) >= 0 && s.lang !== q.get('lang')) { s.lang = q.get('lang'); localStorage.setItem(key, JSON.stringify(s)); }
+        var t = s.theme || 'dark';
+        if (t === 'system') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    })();
   </script>
 </head>
 <body>
   <div id="app"></div>
   <noscript>Done Right needs JavaScript enabled.</noscript>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" async></script>
-  <script src="js/core.js" defer></script>
-  <script src="js/data/categories.js" defer></script>
-  <script src="js/data/locations.js" defer></script>
-  <script src="js/data/providers.js" defer></script>
-  <script src="js/pages/home.js" defer></script>
-  <script src="js/pages/browse.js" defer></script>
-  <script src="js/pages/provider.js" defer></script>
-  <script src="js/pages/orders.js" defer></script>
-  <script src="js/pages/account.js" defer></script>
-  <script src="js/pages/verify.js" defer></script>
-  <script src="js/pages/pro.js" defer></script>
-  <script src="js/app.js" defer></script>
+  <script src="js/core.js?v=2.0" defer></script>
+  <script src="js/i18n.js?v=2.0" defer></script>
+  <script src="js/i18n/dict.js?v=2.0" defer></script>
+  <script src="js/i18n/ui.js?v=2.0" defer></script>
+  <script src="js/i18n/ui2.js?v=2.0" defer></script>
+  <script src="js/i18n/data.js?v=2.0" defer></script>
+  <script src="js/config.js?v=2.0" defer></script>
+  <script src="js/data/categories.js?v=2.0" defer></script>
+  <script src="js/data/locations.js?v=2.0" defer></script>
+  <script src="js/data/licensing.js?v=2.0" defer></script>
+  <script src="js/data/providers.js?v=2.0" defer></script>
+  <script src="js/booking.js?v=2.0" defer></script>
+  <script src="js/rt.js?v=2.0" defer></script>
+  <script src="js/seo.js?v=2.0" defer></script>
+  <script src="js/demo.js?v=2.0" defer></script>
+  <script src="js/pages/home.js?v=2.0" defer></script>
+  <script src="js/pages/browse.js?v=2.0" defer></script>
+  <script src="js/pages/provider.js?v=2.0" defer></script>
+  <script src="js/pages/orders.js?v=2.0" defer></script>
+  <script src="js/pages/quotes.js?v=2.0" defer></script>
+  <script src="js/pages/account.js?v=2.0" defer></script>
+  <script src="js/pages/verify.js?v=2.0" defer></script>
+  <script src="js/pages/admin.js?v=2.0" defer></script>
+  <script src="js/pages/pro.js?v=2.0" defer></script>
+  <script src="js/app.js?v=2.0" defer></script>
 </body>
 </html>
