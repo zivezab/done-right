@@ -201,13 +201,14 @@
           q(sb.from('hidden_providers').select('provider_id, created_at').eq('user_id', me)),
           q(sb.from('cart_items').select('service_id, provider_key, added_at').eq('user_id', me)),
         ]);
-        mine = { profile, prov, myServices, myItems, orders, lists: { follows, hidden, cart }, chat: await loadChat() };
+        mine = { profile, prov, myServices, myItems, orders, lists: { follows, hidden, cart }, chat: await loadChat(), quotes: await fetchQuotes() };
         B.staff = !!staff;
       } else B.staff = false;
 
       const ids = new Set(live.map((p) => p.user_id));
       if (mine) mine.orders.forEach((o) => { ids.add(o.customer_id); ids.add(o.provider_id); });
       if (mine && mine.chat) mine.chat.threads.forEach((t) => { ids.add(t.member_a); ids.add(t.member_b); });
+      if (mine && mine.quotes) mine.quotes.offers.forEach((f) => ids.add(f.provider_id));
       if (ids.size) {
         const pubs = await q(sb.from('public_profiles').select('*').in('id', [...ids]));
         pubs.forEach((p) => { names[p.id] = p.name || 'Done Right user'; B._pub = B._pub || {}; B._pub[p.id] = p; });
@@ -252,6 +253,7 @@
       }
       applyReviews(reviewRows);
       if (mine && mine.chat) applyChat(mine.chat);
+      if (mine) { if (mine.quotes) applyQuotes(mine.quotes); } else s.quotes = [];
       DR.store.setSession(me && s.users[me] ? me : null);   // also saves; brings along a guest's cart
       if (me && s.users[me]) snapshotPushed(s.users[me]);
       subscribe();
@@ -542,6 +544,10 @@
       // members-only by RLS: each person receives just their own conversations
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, onMessage)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reads' }, onRead)
+      // quotes: RLS limits these to requests I made or was invited to
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quote_requests' }, reloadQuotesSoon)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quote_invites' }, reloadQuotesSoon)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quote_offers' }, reloadQuotesSoon)
       .subscribe();
   }
 
@@ -701,6 +707,133 @@
     DR.emit('sync');
   }
 
+  // ------------------------------------------------------------------ quotes
+  // Requests, invites and offers live on the server; the local quotes list is a cache in the shape the
+  // quote screens already use. Invited providers get the job's area, never the customer's address.
+  const QPHOTOS = 'quote-photos';
+  async function fetchQuotes() {
+    try {
+      const [mineQ, invites, offers, inbox] = await Promise.all([
+        q(sb.from('quote_requests').select('*').order('created_at', { ascending: false }).limit(200)),
+        q(sb.from('quote_invites').select('*')),
+        q(sb.from('quote_offers').select('*').order('created_at', { ascending: true }).limit(1000)),
+        q(sb.from('provider_quote_inbox').select('*').order('created_at', { ascending: false }).limit(200)),
+      ]);
+      return { mineQ, invites, offers, inbox };
+    } catch (e) { console.warn('[backend] quotes unavailable:', e.message); return null; }
+  }
+  const mapOffer = (f) => ({
+    id: f.id, providerId: f.provider_id, providerName: names[f.provider_id] || 'Provider', price: +f.price, date: f.local_date,
+    time: hhmm(f.local_time), duration: f.duration_min, message: f.message || '', validUntil: ms(f.valid_until), status: f.status, createdAt: ms(f.created_at),
+  });
+  function applyQuotes(data) {
+    if (!data) return;
+    const { mineQ, invites, offers, inbox } = data;
+    const live = offers.filter((f) => f.status !== 'replaced');
+    const base = (r) => ({
+      id: r.id, no: r.no, subId: r.service_id, country: r.country, title: r.title, details: r.details,
+      photos: (r.photos || []).map((x) => ({ path: x.path })), mode: r.mode, date: r.preferred_date, timeOfDay: r.time_of_day,
+      budgetMin: r.budget_min == null ? null : +r.budget_min, budgetMax: r.budget_max == null ? null : +r.budget_max,
+      direct: !!r.direct, status: r.status, createdAt: ms(r.created_at), expiresAt: ms(r.expires_at), remote: true,
+    });
+    const u = me && S().users[me];
+    const asCustomer = mineQ.map((r) => Object.assign(base(r), {
+      userId: me, customerName: (u && u.name) || '', address: r.address, orderId: r.order_id,
+      invited: invites.filter((i) => i.quote_id === r.id).map((i) => i.provider_id),
+      declinedBy: invites.filter((i) => i.quote_id === r.id && i.declined).map((i) => i.provider_id),
+      offers: live.filter((f) => f.quote_id === r.id).map(mapOffer),
+    }));
+    const asProvider = inbox.filter((r) => !mineQ.some((x) => x.id === r.id)).map((r) => Object.assign(base(r), {
+      userId: r.customer_id, customerName: r.customer_name, address: r.area ? { area: r.area } : null,
+      invited: [me], declinedBy: r.declined ? [me] : [],
+      offers: live.filter((f) => f.quote_id === r.id && f.provider_id === me).map(mapOffer),
+    }));
+    S().quotes = asCustomer.concat(asProvider);
+  }
+  B.loadQuotes = async function loadQuotes() {
+    const data = await fetchQuotes();
+    if (!data) return;
+    const ids = [...new Set(data.offers.map((f) => f.provider_id).filter((id) => !names[id]))];
+    if (ids.length) (await q(sb.from('public_profiles').select('id, name').in('id', ids))).forEach((p) => { names[p.id] = p.name || 'Done Right user'; });
+    applyQuotes(data);
+    DR.store.save();
+    DR.emit('sync');
+  };
+  let quoteTimer = null;
+  const reloadQuotesSoon = () => { clearTimeout(quoteTimer); quoteTimer = setTimeout(() => B.loadQuotes(), 300); };
+  // job photos are private: fetch short-lived links for the ones shown on screen
+  B.showQuotePhotos = async function showQuotePhotos(root) {
+    if (!B.enabled || !root) return;
+    const els = [...root.querySelectorAll('img[data-qfile]')];
+    if (!els.length) return;
+    try {
+      const rows = await q(sb.storage.from(QPHOTOS).createSignedUrls(els.map((x) => x.dataset.qfile), 300));
+      const urls = Object.fromEntries((rows || []).filter((r) => r.signedUrl).map((r) => [r.path, r.signedUrl]));
+      els.forEach((x) => { if (urls[x.dataset.qfile]) x.src = urls[x.dataset.qfile]; });
+    } catch (e) { /* photos are optional */ }
+  };
+  function installQuotes() {
+    const qs = DR.quotes;
+    if (qs._server) return;
+    qs._server = true;
+    const local = Object.assign({}, qs);
+    const on = () => B.enabled && me;
+    qs.create = async function create(args) {
+      if (!on()) return local.create.call(this, args);
+      const { subId, title, details, photos = [], mode = 'onsite', address = null, date = null, timeOfDay = 'any', budgetMin = null, budgetMax = null, providerId = null } = args;
+      const id = uuid();
+      const paths = [];
+      for (const f of photos.slice(0, 4)) {
+        const url = await DR.files.get(f.id);
+        if (!url) continue;
+        const blob = await (await fetch(url)).blob();
+        const path = `${me}/${id}/${f.id}.${EXT[blob.type] || 'jpg'}`;
+        const { error } = await sb.storage.from(QPHOTOS).upload(path, blob, { contentType: blob.type, upsert: false });
+        if (error && String(error.statusCode) !== '409' && !/already exists|duplicate/i.test(error.message)) throw new Error(error.message);
+        paths.push(path);
+      }
+      await rpc('create_quote', {
+        p_id: id, p_service: subId, p_title: title || '', p_details: details || '', p_photos: paths, p_mode: mode,
+        p_address: mode === 'online' ? null : address, p_area: S().area, p_date: date || null, p_time_of_day: timeOfDay || 'any',
+        p_budget_min: budgetMin, p_budget_max: budgetMax, p_provider: providerId || null,
+      });
+      await B.loadQuotes();
+      return this.find(id);
+    };
+    qs.offer = async function offer(quoteId, providerId, { price, date, time, duration = 60, message = '', validDays = 3 }) {
+      if (!on()) return local.offer.call(this, quoteId, providerId, { price, date, time, duration, message, validDays });
+      const f = await rpc('send_quote_offer', { p_quote: quoteId, p_price: price, p_date: date, p_time: time, p_duration: duration, p_message: message, p_valid_days: validDays });
+      await B.loadQuotes();
+      return mapOffer(f);
+    };
+    qs.declineRequest = async function declineRequest(quoteId, providerId) {
+      if (!on()) return local.declineRequest.call(this, quoteId, providerId);
+      await rpc('decline_quote_request', { p_quote: quoteId });
+      await B.loadQuotes();
+      return this.find(quoteId);
+    };
+    qs.rejectOffer = async function rejectOffer(quoteId, offerId) {
+      if (!on()) return local.rejectOffer.call(this, quoteId, offerId);
+      await rpc('reject_quote_offer', { p_offer: offerId });
+      await B.loadQuotes();
+      return this.find(quoteId);
+    };
+    qs.close = async function close(quoteId) {
+      if (!on()) return local.close.call(this, quoteId);
+      await rpc('close_quote', { p_quote: quoteId });
+      await B.loadQuotes();
+      return this.find(quoteId);
+    };
+    qs.accept = async function accept(quoteId, offerId, user) {
+      if (!on()) return local.accept.call(this, quoteId, offerId, user);
+      const order = await orderCall('accept_quote_offer', { p_offer: offerId });
+      await B.loadQuotes();
+      return order;
+    };
+    // counterparts are real people with a backend: nothing to simulate
+    qs.simulate = function simulate(now) { return on() ? 0 : local.simulate.call(this, now); };
+  }
+
   // ------------------------------------------------------------------ reviews
   // Reviews come from public_reviews (reviewer's account never exposed); writes go through database functions.
   const PHOTOS = 'review-photos';
@@ -764,6 +897,7 @@
     B.enabled = true;
     installBooking();
     installChat();
+    installQuotes();
     if (!B._listening) { DR.on('saved', schedulePush); B._listening = true; }
     if (sb.auth.onAuthStateChange) {
       sb.auth.onAuthStateChange((event) => {

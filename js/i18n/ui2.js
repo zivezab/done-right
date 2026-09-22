@@ -236,6 +236,7 @@ DR.addI18N({
   'The customer kept the original time.': ['顾客保留了原时间。', 'Pelanggan mengekalkan masa asal.'],
   // backend & server-side booking rules
   'Staff only': ['仅限工作人员', 'Kakitangan sahaja'],
+  'This provider is not taking requests for this service': ['该服务者暂不接受此服务的报价请求', 'Penyedia ini tidak menerima permintaan untuk perkhidmatan ini'],
   'Sending message': ['发送中', 'Menghantar mesej'], 'Message sent': ['已发送', 'Mesej dihantar'], 'Message read': ['已读', 'Mesej dibaca'],
   'Choose who to message': ['请选择要发消息的对象', 'Pilih siapa untuk dihantar mesej'], 'Write a message first': ['请先输入消息', 'Tulis mesej dahulu'],
   'Messages can be up to 2,000 characters': ['消息最多 2,000 个字符', 'Mesej boleh sehingga 2,000 aksara'],
