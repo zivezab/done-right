@@ -360,10 +360,22 @@
           DR.files.hydrate(s);
           if (st.photos.length >= 4) s.querySelector('.rp-add').hidden = true;
         });
-        s.querySelector('#submit').onclick = () => {
+        s.querySelector('#submit').onclick = async (e) => {
           const u = DR.store.user();
           const text = s.querySelector('#rtext').value.trim() || st.tags.join(', ') || labels[st.stars];
           const anon = s.querySelector('#anon').checked;
+          if (DR.backend.enabled) {
+            // saved on the server: photos go to the public review-photos bucket, the booking is completed there
+            const btn = e.currentTarget;
+            if (btn.disabled) return;
+            btn.disabled = true;
+            try {
+              await DR.backend.submitReview(o, { stars: st.stars, text, tags: st.tags, anon, photos: st.photos });
+            } catch (err) { btn.disabled = false; return DR.ui.toast(err.message); }
+            sh.close();
+            DR.ui.toast('Thanks for your review!');
+            return DR.router.refresh();
+          }
           DR.store.update((state) => {
             state.reviews.unshift({ id: DR.u.uid('r'), providerId: o.providerId, orderId: o.id, userId: u.id, name: anon ? 'Anonymous user' : u.name, anon, stars: st.stars, text, tags: st.tags, photos: st.photos, verified: true, date: Date.now(), area: o.address ? o.address.area : state.area, sub: o.serviceName, subId: o.subId, useful: 0, vip: false, repeat: state.orders.filter((x) => x.userId === u.id && x.providerId === o.providerId && x.status !== 'cancelled').length > 1 });
             const x = state.orders.find((y) => y.id === o.id); x.status = 'completed'; x.reviewed = true; x.log.push({ s: 'completed', ts: Date.now() });

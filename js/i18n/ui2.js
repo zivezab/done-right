@@ -236,6 +236,11 @@ DR.addI18N({
   'The customer kept the original time.': ['顾客保留了原时间。', 'Pelanggan mengekalkan masa asal.'],
   // backend & server-side booking rules
   'Staff only': ['仅限工作人员', 'Kakitangan sahaja'],
+  'You have already reviewed this booking': ['您已评价过此预约', 'Anda sudah mengulas tempahan ini'],
+  'You can review a booking once the job is confirmed complete': ['确认服务完成后即可评价', 'Anda boleh mengulas selepas kerja disahkan selesai'],
+  'Choose 1 to 5 stars': ['请选择 1 至 5 星', 'Pilih 1 hingga 5 bintang'], 'Write a few words about the service': ['请简单描述一下服务', 'Tulis sedikit tentang perkhidmatan'],
+  'Up to 4 photos': ['最多 4 张照片', 'Sehingga 4 foto'], 'Invalid photo': ['照片无效', 'Foto tidak sah'], 'Review not found': ['未找到评价', 'Ulasan tidak dijumpai'],
+  'A reason is required': ['请填写原因', 'Sebab diperlukan'],
   'Documents open through links that expire after 5 minutes. Every viewing is recorded in the audit log.': ['文件通过 5 分钟后失效的链接打开，每次查看都会记入审计日志。', 'Dokumen dibuka melalui pautan yang tamat selepas 5 minit. Setiap paparan direkodkan dalam log audit.'],
   'No files uploaded yet': ['尚未上传文件', 'Belum ada fail dimuat naik'], 'viewed documents': ['查看了文件', 'melihat dokumen'],
   'Please sign in first': ['请先登录', 'Sila log masuk dahulu'], 'Sign in to follow providers': ['登录后即可关注服务者', 'Log masuk untuk mengikuti penyedia'],
