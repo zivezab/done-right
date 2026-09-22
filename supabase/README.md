@@ -21,7 +21,7 @@ This folder holds the database for Done Right: the schema, the booking rules, ro
 ## Set up a project
 
 1. **Create a project** at [supabase.com](https://supabase.com). Choose the **Singapore (ap-southeast-1)** region, which keeps data close to both markets.
-2. **Enable `pg_cron`** under *Database → Extensions*. The last migration uses it to expire unpaid orders every minute and lapse expired documents nightly.
+2. **Enable `pg_cron`** under *Database → Extensions*. The realtime/cron migration (`20260922000500_realtime_cron.sql`) uses it to expire unpaid orders every minute and lapse expired documents nightly.
 3. **Apply the migrations**, in filename order. Either:
    - with the [Supabase CLI](https://supabase.com/docs/guides/cli):
      ```bash
@@ -60,6 +60,7 @@ This folder holds the database for Done Right: the schema, the booking rules, ro
      ```
 - **Documents.** Uploaded files still stay encrypted on the user's device. Only document details (name, issuer, dates, licence number) reach the server, so reviewers can't see the scans yet. The next step is a private Storage bucket with per-user policies.
 - **Account deletion.** Deletion requests currently go to support. Self-service deletion needs an Edge Function using the service-role key, one that anonymises order records rather than deleting them, since those must be retained.
+- **Personal lists.** Follows, hidden providers and cart lines are private rows (`20260922000700_personal_lists.sql`) that users can only add or remove. Provider follower counts come from `follower_counts()`, which returns totals only, never who follows whom.
 - **Not yet on the server:** chat, quotes and reviews still live on each device.
 
 ## Changing the catalog
@@ -80,4 +81,4 @@ The generated SQL is idempotent. Once a project is live, ship catalog changes as
 python3 tools/db_test.py
 ```
 
-This spins up a throwaway local Postgres (`brew install postgresql@16`), applies a small stand-in for Supabase's `auth` schema and roles, runs every migration, and then runs `tests/db/*.sql`: 69 checks covering access control, licensing, booking rules, double-booking, reschedule locks, cancellation terms, expiry and completion. Add `--keep` to leave the database running so you can poke at it.
+This spins up a throwaway local Postgres (`brew install postgresql@16`), applies a small stand-in for Supabase's `auth` schema and roles, runs every migration, and then runs `tests/db/*.sql`: 102 checks covering access control, licensing, booking rules, double-booking, reschedule locks, cancellation terms, expiry and completion. Add `--keep` to leave the database running so you can poke at it.

@@ -25,6 +25,9 @@ window.DR = window.DR || {};
   const between = (r, a, b) => a + Math.floor(r() * (b - a + 1));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const uid = (p = '') => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  }));
   const pad = (n) => String(n).padStart(2, '0');
   const dateKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const parseKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
@@ -80,7 +83,7 @@ window.DR = window.DR || {};
     return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  DR.u = { esc, hash, rng, pick, between, clamp, uid, pad, dateKey, parseKey, addDays, toMin, fromMin, slotTs, DAYS, DAYS_LONG, MONTHS, setLangNames, relDay, fmtDate, fmtMonth, fmtTs, timeAgo, hoursLabel, debounce, plural, compact, sha256 };
+  DR.u = { esc, hash, rng, pick, between, clamp, uid, uuid, pad, dateKey, parseKey, addDays, toMin, fromMin, slotTs, DAYS, DAYS_LONG, MONTHS, setLangNames, relDay, fmtDate, fmtMonth, fmtTs, timeAgo, hoursLabel, debounce, plural, compact, sha256 };
 
   // ---------------------------------------------------------------- event bus
   const listeners = {};
@@ -91,12 +94,32 @@ window.DR = window.DR || {};
   // ---------------------------------------------------------------- store
   const KEY = window.DR_STORAGE_KEY || 'doneright.state.v1';
   const SKEY = KEY + ':tab-session';
-  const VERSION = 2;
+  const VERSION = 3;
+  // Personal lists belong to an account: userData[userId] = { follows, blocked, cart }. Guests only have a cart
+  // (guestCart, on this device), which is merged into the account when they sign in.
+  const emptyLists = () => ({ follows: { providers: [], services: [], shops: [] }, blocked: [], cart: [] });
+  const cartKey = (c) => `${c.subId}|${c.providerId || ''}`;
+  function fillLists(l) {
+    const d = emptyLists();
+    l = l && typeof l === 'object' ? l : d;
+    l.follows = Object.assign(d.follows, l.follows);
+    if (!Array.isArray(l.blocked)) l.blocked = [];
+    if (!Array.isArray(l.cart)) l.cart = [];
+    return l;
+  }
+  // Adds `from` to `into` (newest first, no duplicates).
+  function mergeLists(into, from) {
+    const union = (a, b) => [...new Set([...(b || []), ...(a || [])])];
+    Object.keys(into.follows).forEach((k) => { into.follows[k] = union(into.follows[k], (from.follows || {})[k]); });
+    into.blocked = union(into.blocked, from.blocked);
+    const have = new Set(into.cart.map(cartKey));
+    into.cart = (from.cart || []).filter((c) => c && c.subId && !have.has(cartKey(c))).concat(into.cart);
+    return into;
+  }
   const defaults = () => ({
     version: VERSION, country: 'SG', area: 'Orchard', lang: 'en', theme: 'dark',
-    session: null, users: {}, orders: [], cart: [], quotes: [],
-    follows: { providers: [], services: [], shops: [] },
-    history: [], searches: [], blocked: [], threads: {}, reviews: [], replies: {},
+    session: null, users: {}, orders: [], quotes: [], userData: {}, guestCart: [],
+    history: [], searches: [], threads: {}, reviews: [], replies: {},
     audit: [], idRegistry: {}, waitlist: [],
     notif: { bookings: true, nearby: true, promos: false, chat: true },
     demo: { autoApprove: true, simulate: true },
@@ -114,8 +137,19 @@ window.DR = window.DR || {};
         next[members.join('|')] = { members, msgs: (th.msgs || []).map((m) => ({ from: m.from === 'me' ? me : peer, text: m.text, ts: m.ts })), unread: { [me]: th.unread || 0 }, updated: th.updated || 0 };
       });
       s.threads = next;
-      s.version = VERSION;
     }
+    if (!s.version || s.version < 3) {
+      // v2 kept follows / hidden providers / cart per device: they now belong to whoever is signed in here
+      let id = null;
+      try { id = sessionStorage.getItem(SKEY) || null; } catch (e) { /* ignore */ }
+      id = id || s.session;
+      const legacy = { follows: s.follows, blocked: s.blocked, cart: s.cart };
+      s.userData = s.userData || {};
+      if (id && s.users && s.users[id]) s.userData[id] = Object.assign(mergeLists(fillLists(s.userData[id]), legacy), { fromDevice: true });
+      else s.guestCart = (s.guestCart || []).concat(Array.isArray(s.cart) ? s.cart : []);   // a guest's cart is kept; follows need an account
+      delete s.follows; delete s.blocked; delete s.cart;
+    }
+    s.version = VERSION;
     const d = defaults();
     Object.keys(d).forEach((k) => { if (s[k] === undefined || s[k] === null) s[k] = d[k]; });
     s.demo = Object.assign(d.demo, s.demo);
@@ -146,11 +180,24 @@ window.DR = window.DR || {};
     reset() { state = defaults(); try { sessionStorage.removeItem(SKEY); } catch (e) { /* ignore */ } this.save(); },
     sessionId() { const id = tabSession(); return id && state.users[id] ? id : null; },
     setSession(id) {
+      // signing in brings along what was added to the cart as a guest
+      if (id && state.users[id] && state.guestCart.length) { mergeLists(this.lists(id), { cart: state.guestCart }); state.guestCart = []; }
       state.session = id || null;
       try { sessionStorage.setItem(SKEY, id || ''); } catch (e) { /* ignore */ }
       this.save();
     },
     user() { const id = this.sessionId(); return id ? state.users[id] : null; },
+    // The signed-in account's follows / hidden providers / cart (or a guest's: an empty list set plus the device cart).
+    // Mutate the returned object inside DR.store.update(); for guests only `cart` is kept.
+    lists(id = this.sessionId()) {
+      if (!id) {
+        const g = emptyLists();
+        Object.defineProperty(g, 'cart', { enumerable: true, get: () => state.guestCart, set: (v) => { state.guestCart = v; } });
+        return g;
+      }
+      return (state.userData[id] = fillLists(state.userData[id]));
+    },
+    mergeLists,
     audit(entry) { state.audit.unshift(Object.assign({ ts: Date.now() }, entry)); state.audit = state.audit.slice(0, 500); },
   };
   // Cross-tab sync: another tab saved → adopt its state (per-tab session is kept in sessionStorage)

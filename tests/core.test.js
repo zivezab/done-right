@@ -46,7 +46,7 @@ describe('store', () => {
     expect(th.msgs[0].from).toBe('u9');
     expect(th.msgs[1].from).toBe('p1');
     expect(th.unread.u9).toBe(1);
-    expect(s.version).toBe(2);
+    expect(s.version).toBe(3);
     expect(Array.isArray(s.quotes)).toBe(true);
   });
 });

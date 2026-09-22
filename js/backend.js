@@ -2,7 +2,8 @@
  * Off by default: the app runs in local demo mode until DR.CONFIG.supabase has a URL and anon key.
  * When on, the local store becomes a cache of server data:
  *  - hydrate() loads live providers, your profile, listing, documents and orders into DR.store.s
- *  - your own profile / listing / documents are pushed automatically after local saves (diffed, debounced)
+ *  - your own profile / listing / documents / follows / hidden providers / cart are pushed automatically after
+ *    local saves (diffed, debounced)
  *  - every booking change goes through the database functions in supabase/migrations (server-enforced rules)
  *  - realtime keeps orders and review decisions in sync across devices
  * Documents (files), chat, quotes and reviews still live on this device only; see README "Backend". */
@@ -17,15 +18,18 @@
   let sb = null;
   let me = null;
   let pushed = {};          // last pushed JSON per section
+  let pushedUser = null;    // whose data `pushed` describes
   let pushTimer = null;
   let hydrating = false;
   let channel = null;
   const names = {};         // user id → display name (public_profiles)
   const busy = {};          // provider id → { at, list: [{date, time, duration}] }
+  let followerBase = {};    // provider id → followers other than you (public.follower_counts)
 
   const B = DR.backend = {
     enabled: false,
     staff: false,
+    followers: (id) => followerBase[id] || 0,
     get client() { return sb; },
     get userId() { return me; },
     // ?backend=off forces local demo mode (tests, demos) even when a project is configured
@@ -42,9 +46,7 @@
   const hhmm = (t) => (t ? String(t).slice(0, 5) : t);
   const ms = (ts) => (ts ? new Date(ts).getTime() : null);
   const strip = (rec) => { const o = {}; Object.keys(rec || {}).forEach((k) => { if (!LOCAL_ONLY.includes(k)) o[k] = rec[k]; }); return o; };
-  const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  }));
+  const uuid = () => DR.u.uuid();
 
   // ------------------------------------------------------------------ server row → app shape
   function mapOrder(r) {
@@ -122,6 +124,55 @@
     return out;
   }
 
+  // Personal lists: server rows ↔ DR.store.lists() shape. Each row is identified by its key; rows are only added or removed.
+  const KINDS = { provider: 'providers', service: 'services', shop: 'shops' };
+  const newest = (rows, col) => rows.slice().sort((a, b) => ms(b[col]) - ms(a[col]));
+  const cartKey = (c) => `${c.subId}|${c.providerId || ''}`;
+  const splitKey = (k) => { const i = k.indexOf('|'); return [k.slice(0, i), k.slice(i + 1)]; };
+  function listKeys(l) {
+    return {
+      follows: Object.entries(KINDS).flatMap(([kind, k]) => l.follows[k].map((t) => `${kind}|${t}`)).sort(),
+      hidden: l.blocked.slice().sort(),
+      cart: l.cart.map(cartKey).sort(),
+    };
+  }
+  function mapLists(rows, prev) {
+    const l = { follows: { providers: [], services: [], shops: [] }, blocked: [], cart: [] };
+    newest(rows.follows, 'created_at').forEach((r) => { if (KINDS[r.kind]) l.follows[KINDS[r.kind]].push(r.target); });
+    l.blocked = newest(rows.hidden, 'created_at').map((r) => r.provider_id);
+    const prevCart = Object.fromEntries(((prev && prev.cart) || []).map((c) => [cartKey(c), c]));
+    l.cart = newest(rows.cart, 'added_at').map((r) => {
+      const c = { subId: r.service_id, providerId: r.provider_key || null, addedAt: ms(r.added_at) };
+      return Object.assign(c, { id: (prevCart[cartKey(c)] || {}).id || uuid() });
+    });
+    return l;
+  }
+  // Local edits not yet on the server (debounce window, failed push) survive a reload from the server.
+  function keepPending(l, prev, pushedKeys) {
+    if (!prev || !pushedKeys) return l;
+    const was = (name) => new Set(JSON.parse(pushedKeys[name] || '[]'));
+    const pf = was('follows'); const ph = was('hidden'); const pc = was('cart');
+    Object.entries(KINDS).forEach(([kind, k]) => {
+      const now = prev.follows[k];
+      l.follows[k] = now.filter((t) => !pf.has(`${kind}|${t}`) && !l.follows[k].includes(t))
+        .concat(l.follows[k].filter((t) => !pf.has(`${kind}|${t}`) || now.includes(t)));
+    });
+    l.blocked = prev.blocked.filter((t) => !ph.has(t) && !l.blocked.includes(t)).concat(l.blocked.filter((t) => !ph.has(t) || prev.blocked.includes(t)));
+    const prevKeys = new Set(prev.cart.map(cartKey)); const have = new Set(l.cart.map(cartKey));
+    l.cart = prev.cart.filter((c) => !pc.has(cartKey(c)) && !have.has(cartKey(c))).concat(l.cart.filter((c) => !pc.has(cartKey(c)) || prevKeys.has(cartKey(c))));
+    return l;
+  }
+  async function loadFollowerCounts(ids, mineFollows) {
+    const next = {};
+    for (let i = 0; i < ids.length; i += 500) {
+      // counts are decoration: a failure leaves them at 0 rather than blocking the app
+      const rows = await rpc('follower_counts', { p_providers: ids.slice(i, i + 500) }).catch(() => []);
+      (rows || []).forEach((r) => { next[r.provider_id] = r.followers; });
+    }
+    (mineFollows || []).forEach((id) => { if (next[id]) next[id]--; });   // your own follow is added back live
+    followerBase = next;
+  }
+
   // ------------------------------------------------------------------ hydrate (server → cache)
   B.hydrate = async function hydrate() {
     if (!sb) return;
@@ -136,15 +187,18 @@
       ]);
       let mine = null;
       if (me) {
-        const [profile, prov, myServices, myItems, orders, staff] = await Promise.all([
+        const [profile, prov, myServices, myItems, orders, staff, follows, hidden, cart] = await Promise.all([
           q(sb.from('profiles').select('*').eq('id', me).maybeSingle()),
           q(sb.from('providers').select('*').eq('user_id', me).maybeSingle()),
           q(sb.from('provider_services').select('*').eq('provider_id', me)),
           q(sb.from('verification_items').select('*').eq('user_id', me)),
           q(sb.from('orders').select('*').or(`customer_id.eq.${me},provider_id.eq.${me}`).order('created_at', { ascending: false }).limit(500)),
           q(sb.from('staff').select('role').eq('user_id', me).maybeSingle()),
+          q(sb.from('follows').select('kind, target, created_at').eq('user_id', me)),
+          q(sb.from('hidden_providers').select('provider_id, created_at').eq('user_id', me)),
+          q(sb.from('cart_items').select('service_id, provider_key, added_at').eq('user_id', me)),
         ]);
-        mine = { profile, prov, myServices, myItems, orders };
+        mine = { profile, prov, myServices, myItems, orders, lists: { follows, hidden, cart } };
         B.staff = !!staff;
       } else B.staff = false;
 
@@ -155,8 +209,13 @@
         pubs.forEach((p) => { names[p.id] = p.name || 'Done Right user'; B._pub = B._pub || {}; B._pub[p.id] = p; });
       }
 
+      await loadFollowerCounts(live.map((p) => p.user_id), mine ? mine.lists.follows.filter((f) => f.kind === 'provider').map((f) => f.target) : []);
+
       const s = S();
       const prevMe = me && s.users[me];
+      const prevLists = me && s.userData[me] ? s.userData[me] : null;
+      // lists of accounts signed in here before (via the server) are not kept on the device
+      Object.keys(s.userData).forEach((id) => { if (id !== me && s.users[id] && s.users[id]._remote) delete s.userData[id]; });
       Object.keys(s.users).forEach((id) => { if (s.users[id]._remote || id === me) delete s.users[id]; });
       live.forEach((row) => {
         if (row.user_id === me) return;
@@ -177,12 +236,17 @@
           provider: mine.prov ? mapProvider(mine.prov, mine.myServices) : undefined,
         };
         s.orders = mine.orders.map(mapOrder);
+        const onServer = listSections(mapLists(mine.lists));
+        const lists = mapLists(mine.lists, prevLists);
+        // lists moved to this account from device storage (store v3 migration) were never on the server: add them
+        s.userData[me] = prevLists && prevLists.fromDevice ? DR.store.mergeLists(lists, prevLists) : keepPending(lists, prevLists, pushedUser === me ? pushed : null);
+        Object.assign(pushed, onServer);
         if (s.country !== p.country) { s.country = p.country; s.area = DR.POPULAR_AREAS[p.country][0]; }
         if (B.staff) await loadReviewQueue();
       } else {
         s.orders = [];
       }
-      DR.store.setSession(me && s.users[me] ? me : null);   // also saves
+      DR.store.setSession(me && s.users[me] ? me : null);   // also saves; brings along a guest's cart
       if (me && s.users[me]) snapshotPushed(s.users[me]);
       subscribe();
     } finally {
@@ -190,6 +254,7 @@
     }
     DR.emit('sync');
     DR.router.refresh();
+    schedulePush();   // pending list edits and a guest's cart
   };
 
   // Staff: pending verification items (and recent decisions) from every user.
@@ -206,15 +271,25 @@
   }
 
   // ------------------------------------------------------------------ push (cache → server)
+  function listSections(l) {
+    const k = listKeys(l);
+    return { follows: JSON.stringify(k.follows), hidden: JSON.stringify(k.hidden), cart: JSON.stringify(k.cart) };
+  }
   function sections(u) {
-    return {
+    return Object.assign({
       profile: JSON.stringify(profilePayload(u)),
       provider: JSON.stringify(providerPayload(u)),
       services: JSON.stringify(servicesPayload(u)),
       docs: JSON.stringify(verificationRecs(u).map(([k, r]) => [k, r.rid || null, strip(r)])),
-    };
+    }, listSections(DR.store.lists(u.id)));
   }
-  function snapshotPushed(u) { pushed = sections(u); pushed.rids = verificationRecs(u).map(([, r]) => r.rid).filter(Boolean); }
+  // Lists are snapshotted from the server rows during hydrate (before a guest's cart is merged in).
+  function snapshotPushed(u) {
+    const lists = { follows: pushed.follows, hidden: pushed.hidden, cart: pushed.cart };
+    pushed = Object.assign(sections(u), lists);
+    pushed.rids = verificationRecs(u).map(([, r]) => r.rid).filter(Boolean);
+    pushedUser = u.id;
+  }
 
   // Each part saves on its own: a rejected listing never blocks a document submission. A failed part keeps
   // the local edit, reports the database's reason, and is retried on the next save.
@@ -270,6 +345,42 @@
       if (gone.length) await q(sb.from('verification_items').delete().in('id', gone));
       pushed.rids = [...known].filter((rid) => !gone.includes(rid));
       if (changed.length) { changed.forEach(([, r]) => { r.status = 'pending'; delete r.reason; }); DR.store.save(); }
+    });
+    // Lists: rows are added with `insert … on conflict do nothing` (a row another tab saved is fine) and removed by key.
+    // Never an upsert that updates: users may only insert and delete these rows.
+    const diff = (name) => {
+      const was = new Set(JSON.parse(pushed[name] || '[]')); const is = new Set(JSON.parse(now[name]));
+      return { add: [...is].filter((k) => !was.has(k)), del: [...was].filter((k) => !is.has(k)) };
+    };
+    const ignoreDup = (cols) => ({ onConflict: cols, ignoreDuplicates: true });
+    await part('follows', 'Following', async () => {
+      const { add, del } = diff('follows');
+      if (add.length) await q(sb.from('follows').upsert(add.map(splitKey).map(([kind, target]) => ({ user_id: me, kind, target })), ignoreDup('user_id,kind,target')));
+      for (const kind of Object.keys(KINDS)) {
+        const targets = del.map(splitKey).filter(([k]) => k === kind).map(([, t]) => t);
+        if (targets.length) await q(sb.from('follows').delete().eq('user_id', me).eq('kind', kind).in('target', targets));
+      }
+    });
+    await part('hidden', 'Hidden providers', async () => {
+      const { add, del } = diff('hidden');
+      if (add.length) await q(sb.from('hidden_providers').upsert(add.map((id) => ({ user_id: me, provider_id: id })), ignoreDup('user_id,provider_id')));
+      if (del.length) await q(sb.from('hidden_providers').delete().eq('user_id', me).in('provider_id', del));
+    });
+    await part('cart', 'Cart', async () => {
+      const { add, del } = diff('cart');
+      const items = DR.store.lists(me).cart;
+      if (add.length) {
+        await q(sb.from('cart_items').upsert(add.map((k) => {
+          const [service, provider] = splitKey(k);
+          const c = items.find((x) => cartKey(x) === k) || {};
+          return { user_id: me, service_id: service, provider_key: provider, added_at: new Date(c.addedAt || Date.now()).toISOString() };
+        }), ignoreDup('user_id,service_id,provider_key')));
+      }
+      const byProvider = {};
+      del.map(splitKey).forEach(([service, provider]) => { (byProvider[provider] = byProvider[provider] || []).push(service); });
+      for (const [provider, services] of Object.entries(byProvider)) {
+        await q(sb.from('cart_items').delete().eq('user_id', me).eq('provider_key', provider).in('service_id', services));
+      }
     });
     if (errors.length) DR.ui.toast(`Not saved to the server — ${errors.join(' · ')}`, 8000);
     return errors;
@@ -430,5 +541,5 @@
     else if (link.returned && (!me || link.wasSignedIn)) DR.ui.toast('Open the sign-in link in the same browser window you requested it from — copy the link from the email and paste it into that window', 9000);
     return true;
   };
-  B._test = { mapOrder, mapVerification, providerPayload, servicesPayload, profilePayload, strip, sections, reset() { sb = null; me = null; pushed = {}; B.enabled = false; B.staff = false; if (channel) channel = null; } };
+  B._test = { mapOrder, mapVerification, mapLists, keepPending, listKeys, providerPayload, servicesPayload, profilePayload, strip, sections, reset() { clearTimeout(pushTimer); sb = null; me = null; pushed = {}; pushedUser = null; followerBase = {}; B.enabled = false; B.staff = false; if (channel) channel = null; } };
 })(window.DR);

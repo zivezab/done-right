@@ -176,7 +176,7 @@
           try {
             const addr = addrs.find((a) => a.id === d.addr);
             const order = await DR.booking.create({ user: u, provider: p, service: svc, date: d.date, time: d.time, mode: d.mode, address: addr ? Object.assign({}, addr) : null, notes: d.notes });
-            DR.store.update((s) => { s.cart = s.cart.filter((c) => !(c.subId === svc.subId && (!c.providerId || c.providerId === p.id))); }, { render: false });
+            DR.store.update(() => { const l = DR.store.lists(); l.cart = l.cart.filter((c) => !(c.subId === svc.subId && (!c.providerId || c.providerId === p.id))); }, { render: false });
             delete drafts[p.id];
             DR.router.go('/pay/' + order.id, { replace: true });
           } catch (err) { btn.disabled = false; DR.ui.toast(err.message); DR.router.refresh(); }
@@ -507,9 +507,10 @@
     const tab = query.tab || 'cart';
     const f = query.f || 'providers';
     const s = S();
+    const mine = DR.store.lists();
     let body = '';
     if (tab === 'cart') {
-      body = s.cart.length ? `<div class="card">${s.cart.map((c) => {
+      body = mine.cart.length ? `<div class="card">${mine.cart.map((c) => {
         const sub = DR.SUB[c.subId]; if (!sub) return '';
         const p = c.providerId && DR.data.provider(c.providerId);
         return `<div class="cart-row">${DR.ui.thumb(sub, { cls: 'thumb-sm' })}<a class="grow minw0" href="#/service/${sub.id}"><b class="ellipsis">${esc(sub.name)}</b><div class="muted xs">${p ? `<span data-no-i18n>${esc(p.name)}</span>` : ('Best match provider')}</div><div class="price">${DR.cards.priceHTML(DR.data.catalogPrice(sub), sub.unit)}</div></a><div class="col gap6"><a class="btn btn-primary btn-xs" href="#${p ? `/book/${p.id}?sub=${sub.id}` : `/service/${sub.id}`}">Book</a><button class="link muted xs" data-rm="${c.id}">Remove</button></div></div>`;
@@ -517,29 +518,29 @@
     } else {
       const sub = `<nav class="tabs">${[['providers', 'Providers'], ['services', 'Services'], ['shops', 'Shops']].map(([k, l]) => `<a class="tab-link ${f === k ? 'on' : ''}" href="#/cart?tab=following&f=${k}">${l}</a>`).join('')}</nav>`;
       if (f === 'providers') {
-        const list = s.follows.providers.map((id) => DR.data.provider(id)).filter(Boolean);
+        const list = mine.follows.providers.map((id) => DR.data.provider(id)).filter(Boolean);
         if (followSort === 'followers') list.sort((a, b) => b.followers - a.followers);
         if (followSort === 'avail') list.sort((a, b) => { const na = DR.avail.next(a), nb = DR.avail.next(b); return (na ? na.day * 1440 + DR.u.toMin(na.time) : 1e9) - (nb ? nb.day * 1440 + DR.u.toMin(nb.time) : 1e9); });
         if (followSort === 'distance') list.sort((a, b) => DR.data.dist(a) - DR.data.dist(b));
         body = `${sub}<div class="filterbar">${[['recent', 'Followed'], ['followers', 'Followers'], ['avail', 'Available'], ['distance', 'Distance']].map(([k, l]) => `<button class="fb-chip ${followSort === k ? 'on' : ''}" data-fs="${k}">${l} ${icon('down', 11)}</button>`).join('')}</div>
           <div class="plist">${list.map((p) => DR.cards.provider(p)).join('') || DR.ui.empty('heart', 'No followed providers yet', '<a class="btn btn-outline" href="#/nearby">Find providers</a>')}</div>`;
       } else if (f === 'services') {
-        body = `${sub}${s.follows.services.length ? `<div class="svc-rows">${s.follows.services.map((id) => DR.SUB[id] && DR.cards.svcRow(DR.SUB[id])).join('')}</div>` : DR.ui.empty('heart', 'Great services are waiting to be discovered')}`;
+        body = `${sub}${mine.follows.services.length ? `<div class="svc-rows">${mine.follows.services.map((id) => DR.SUB[id] && DR.cards.svcRow(DR.SUB[id])).join('')}</div>` : DR.ui.empty('heart', 'Great services are waiting to be discovered')}`;
       } else {
-        body = `${sub}${s.follows.shops.length ? `<div class="card">${s.follows.shops.map((name) => { const n = DR.data.providers().filter((p) => p.shop === name).length; return `<a class="list-item" href="#/search?q=${encodeURIComponent(name)}"><span class="row gap10">${icon('store', 20)}<span><b data-no-i18n>${esc(name)}</b><br><small class="muted">${n} provider${n === 1 ? '' : 's'}</small></span></span>${icon('right', 16)}</a>`; }).join('')}</div>` : DR.ui.empty('heart', 'Follow shops from a provider\'s profile')}`;
+        body = `${sub}${mine.follows.shops.length ? `<div class="card">${mine.follows.shops.map((name) => { const n = DR.data.providers().filter((p) => p.shop === name).length; return `<a class="list-item" href="#/search?q=${encodeURIComponent(name)}"><span class="row gap10">${icon('store', 20)}<span><b data-no-i18n>${esc(name)}</b><br><small class="muted">${n} provider${n === 1 ? '' : 's'}</small></span></span>${icon('right', 16)}</a>`; }).join('')}</div>` : DR.ui.empty('heart', 'Follow shops from a provider\'s profile')}`;
       }
     }
     return {
       title: tab === 'cart' ? 'Cart' : 'Following', seo: { noindex: true },
-      html: `<header class="navbar"><button class="icon-btn nav-back" data-back aria-label="Back">${icon('back', 24)}</button><div class="nav-title">${DR.ui.seg([['cart', ('Cart')], ['following', ('Following')]], tab, 'ctab')}</div><div class="nav-right">${tab === 'cart' && s.cart.length ? `<button class="icon-btn" id="clear" aria-label="Clear cart">${icon('broom')}</button>` : tab === 'following' ? `<button class="icon-btn" id="bell" aria-label="Nearby alerts">${icon('bell')}</button>` : ''}</div></header>
+      html: `<header class="navbar"><button class="icon-btn nav-back" data-back aria-label="Back">${icon('back', 24)}</button><div class="nav-title">${DR.ui.seg([['cart', ('Cart')], ['following', ('Following')]], tab, 'ctab')}</div><div class="nav-right">${tab === 'cart' && mine.cart.length ? `<button class="icon-btn" id="clear" aria-label="Clear cart">${icon('broom')}</button>` : tab === 'following' ? `<button class="icon-btn" id="bell" aria-label="Nearby alerts">${icon('bell')}</button>` : ''}</div></header>
         ${tab === 'following' && !s.tips.nearby ? `<div class="notice mx mt8">${icon('bell', 16)} <span class="grow"><b>Nearby alerts:</b> get notified when providers you follow are close to you.</span><button class="icon-btn sm" id="tipx" aria-label="Dismiss">${icon('x', 14)}</button></div>` : ''}
         ${body}`,
       mount(el) {
         el.addEventListener('click', async (e) => {
           const t = e.target.closest('[data-ctab]'); if (t) return DR.router.go('/cart?tab=' + t.dataset.ctab, { replace: true });
-          const rm = e.target.closest('[data-rm]'); if (rm) return DR.store.update((st) => { st.cart = st.cart.filter((c) => c.id !== rm.dataset.rm); });
+          const rm = e.target.closest('[data-rm]'); if (rm) return DR.store.update(() => { const l = DR.store.lists(); l.cart = l.cart.filter((c) => c.id !== rm.dataset.rm); });
           const fs = e.target.closest('[data-fs]'); if (fs) { followSort = fs.dataset.fs; return DR.router.refresh(); }
-          if (e.target.closest('#clear') && await DR.ui.confirm({ title: 'Clear cart?', ok: 'Clear', danger: true })) DR.store.update((st) => { st.cart = []; });
+          if (e.target.closest('#clear') && await DR.ui.confirm({ title: 'Clear cart?', ok: 'Clear', danger: true })) DR.store.update(() => { DR.store.lists().cart = []; });
           if (e.target.closest('#tipx')) DR.store.update((st) => { st.tips.nearby = true; });
           if (e.target.closest('#bell')) { DR.store.update((st) => { st.notif.nearby = !st.notif.nearby; st.tips.nearby = true; }, { render: false }); DR.ui.toast(S().notif.nearby ? 'Nearby alerts on' : 'Nearby alerts off'); }
         });

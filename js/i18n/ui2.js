@@ -265,4 +265,5 @@ DR.addI18N({
   'A reject reason is required': ['请填写驳回原因', 'Sebab penolakan diperlukan'], 'Item not found': ['未找到该项目', 'Item tidak dijumpai'],
   'Invalid slot length': ['时段长度无效', 'Tempoh slot tidak sah'], 'Invalid availability': ['可约时间设置无效', 'Ketersediaan tidak sah'],
   'Invalid booking rules': ['预约规则无效', 'Peraturan tempahan tidak sah'], 'Order is not awaiting payment': ['该订单无需付款', 'Pesanan tidak menunggu bayaran'],
+  'Your cart is full (200 items)': ['购物车已满（最多 200 项）', 'Troli anda penuh (200 item)'], 'Hidden providers': ['已屏蔽的服务者', 'Penyedia disembunyikan'],
 });

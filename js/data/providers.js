@@ -339,6 +339,12 @@
   // ------------------------------------------------------------ user-registered providers
   function monthsSince(ts) { return Math.max(0, Math.round((Date.now() - ts) / (30 * 86400000))); }
   function ageFrom(dob) { if (!dob) return null; const d = new Date(dob); if (isNaN(d)) return null; return Math.floor((Date.now() - d) / (365.25 * 86400000)); }
+  // With the backend: the server's aggregate count (others' follows) plus this account's own follow.
+  // Demo mode: every account on this device that follows them.
+  function followerCount(id) {
+    if (DR.backend && DR.backend.enabled) return DR.backend.followers(id) + (DR.store.lists().follows.providers.includes(id) ? 1 : 0);
+    return Object.values(S().userData).filter((l) => l && l.follows && (l.follows.providers || []).includes(id)).length;
+  }
   function fromUser(u) {
     const pv = u.provider;
     if (!pv) return null;
@@ -370,7 +376,7 @@
       headline: pv.headline || `${role}`, bio: pv.bio || '', languages: pv.languages && pv.languages.length ? pv.languages : ['English'],
       skill: myReviews.length ? Math.round((myReviews.reduce((a, x) => a + x.stars, 0) / myReviews.length) * 4) / 4 : null,
       reviews: myReviews.length, positive: myReviews.length ? Math.round((myReviews.filter((x) => x.stars >= 4).length / myReviews.length) * 100) : 100,
-      repeat: 0, jobs: completed, followers: S().follows.providers.filter((x) => x === u.id).length,
+      repeat: 0, jobs: completed, followers: followerCount(u.id),
       joinedMonths: monthsSince(pv.createdAt || Date.now()), yearsExp: +pv.years || 1,
       education: (ver.education || []).map((e) => ({ school: e.school, degree: e.degree, field: e.field, start: e.start, end: e.end, grade: e.grade, verified: e.status === 'verified', status: e.status, file: e.file })),
       experience: (ver.experience || []).map((e) => ({ title: e.title, company: e.company, type: e.type, location: e.location, start: e.start, end: e.current ? null : e.end, desc: e.desc, verified: e.status === 'verified', status: e.status, file: e.file })),
@@ -541,7 +547,8 @@
       const users = Object.values(S().users).filter((u) => u.provider && u.provider.status === 'live' && (u.country || 'SG') === cc && (!live || u._remote)).map(fromUser).filter((p) => p.services.length);
       // with a real backend, only real providers are listed (seed data is for the demo)
       const seeds = live && !(DR.CONFIG.supabase || {}).showSeeds ? [] : genCountry(cc);
-      return users.concat(seeds).filter((p) => !S().blocked.includes(p.id));
+      const hidden = DR.store.lists().blocked;
+      return hidden.length ? users.concat(seeds).filter((p) => !hidden.includes(p.id)) : users.concat(seeds);
     },
     provider(id) {
       if (S().users[id]) return fromUser(S().users[id]);
