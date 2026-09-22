@@ -236,6 +236,8 @@ DR.addI18N({
   'The customer kept the original time.': ['顾客保留了原时间。', 'Pelanggan mengekalkan masa asal.'],
   // backend & server-side booking rules
   'Staff only': ['仅限工作人员', 'Kakitangan sahaja'],
+  'Documents open through links that expire after 5 minutes. Every viewing is recorded in the audit log.': ['文件通过 5 分钟后失效的链接打开，每次查看都会记入审计日志。', 'Dokumen dibuka melalui pautan yang tamat selepas 5 minit. Setiap paparan direkodkan dalam log audit.'],
+  'No files uploaded yet': ['尚未上传文件', 'Belum ada fail dimuat naik'], 'viewed documents': ['查看了文件', 'melihat dokumen'],
   'Please sign in first': ['请先登录', 'Sila log masuk dahulu'], 'Sign in to follow providers': ['登录后即可关注服务者', 'Log masuk untuk mengikuti penyedia'],
   'Sign in to follow shops': ['登录后即可关注店铺', 'Log masuk untuk mengikuti kedai'], 'Sign in to hide providers': ['登录后即可屏蔽服务者', 'Log masuk untuk menyembunyikan penyedia'],
   'Sign in to report a provider': ['登录后即可举报服务者', 'Log masuk untuk melaporkan penyedia'], 'Sign in to save services': ['登录后即可收藏服务', 'Log masuk untuk menyimpan perkhidmatan'],

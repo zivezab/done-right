@@ -260,14 +260,19 @@
   // Staff: pending verification items (and recent decisions) from every user.
   async function loadReviewQueue() {
     const items = await q(sb.from('verification_items').select('*').order('submitted_at', { ascending: false }).limit(200));
+    const audit = await q(sb.from('audit_log').select('*').order('ts', { ascending: false }).limit(100));
     const others = items.filter((it) => it.user_id !== me);
     const users = [...new Set(others.map((it) => it.user_id))];
-    const profiles = users.length ? await q(sb.from('profiles').select('id, name, country').in('id', users)) : [];
+    const ids = [...new Set(users.concat(audit.map((a) => a.actor).filter(Boolean)))];
+    const profiles = ids.length ? await q(sb.from('profiles').select('id, name, country').in('id', ids)) : [];
     users.forEach((uid) => {
       const p = profiles.find((x) => x.id === uid) || {};
       const u = S().users[uid] || (S().users[uid] = { id: uid, _remote: true, name: p.name || '', country: p.country || 'SG', roles: {} });
       u.verification = mapVerification(others.filter((it) => it.user_id === uid));
     });
+    // the console's Audit tab shows the server's log (review decisions, document viewings)
+    const nameOf = (id) => ((profiles.find((x) => x.id === id) || {}).name || (id ? String(id).slice(0, 8) : 'system'));
+    S().audit = audit.map((a) => ({ ts: ms(a.ts), actor: nameOf(a.actor), userId: a.subject_user, item: a.item, action: a.action, reason: a.reason || '' }));
   }
 
   // ------------------------------------------------------------------ push (cache → server)
@@ -291,6 +296,64 @@
     pushedUser = u.id;
   }
 
+  // ------------------------------------------------------------------ document files → private Storage bucket
+  // Scans stay AES-GCM encrypted on the device; the uploaded copy sits in the private `verification` bucket
+  // at <user>/<document>/<file id>.<ext>. The document's `docs` list (in its data) records what was uploaded,
+  // so reviewers know which files to open and repeat saves never upload twice.
+  const BUCKET = 'verification';
+  const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' };
+  const notOnDevice = new Set();   // files referenced by a document but stored on another device
+  function fileRefs(rec) {
+    const out = [];
+    const walk = (o, slot) => {
+      if (!o || typeof o !== 'object') return;
+      if (typeof o.id === 'string' && o.id.startsWith('f_')) { out.push({ slot, ref: o }); return; }
+      Object.entries(o).forEach(([k, v]) => walk(v, slot ? `${slot}.${k}` : k));
+    };
+    walk({ file: rec.file, ...(rec.files || {}) }, '');
+    return out;
+  }
+  const uploadedPath = (rec, ref) => ((rec.docs || []).find((d) => d.path && d.path.includes(`/${ref.id}.`)) || {}).path;
+  const needsUpload = (rec) => fileRefs(rec).some(({ ref }) => !uploadedPath(rec, ref) && !notOnDevice.has(ref.id));
+  async function uploadDocFiles(rec) {
+    const refs = fileRefs(rec);
+    const before = JSON.stringify(rec.docs || []);
+    const docs = [];
+    for (const { slot, ref } of refs) {
+      let path = uploadedPath(rec, ref);
+      if (!path) {
+        const url = notOnDevice.has(ref.id) ? null : await DR.files.get(ref.id);
+        if (!url) { notOnDevice.add(ref.id); continue; }
+        const blob = await (await fetch(url)).blob();
+        path = `${me}/${rec.rid}/${ref.id}.${EXT[blob.type] || 'bin'}`;
+        const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: blob.type, upsert: false });
+        // already uploaded (another tab, or a retry after a lost response) counts as done
+        if (error && String(error.statusCode) !== '409' && !/already exists|duplicate/i.test(error.message)) throw new Error(error.message);
+      }
+      docs.push({ slot, path, name: ref.name || '', image: !!ref.image });
+    }
+    // Earlier entries: a slot this device now fills with a different file was replaced → remove the old file;
+    // slots this device has no file for (uploaded from another device) are kept as they are.
+    const previous = (rec.docs || []).filter((d) => !docs.some((x) => x.path === d.path));
+    const filled = new Set(docs.map((x) => x.slot));   // only slots whose file is actually on this device
+    const replaced = previous.filter((d) => filled.has(d.slot));
+    if (replaced.length) await sb.storage.from(BUCKET).remove(replaced.map((d) => d.path));
+    rec.docs = docs.concat(previous.filter((d) => !filled.has(d.slot)));
+    if (!rec.docs.length) delete rec.docs;
+    return JSON.stringify(rec.docs || []) !== before;
+  }
+  B.signedUrls = async function signedUrls(paths, seconds = 300) {
+    if (!paths.length) return {};
+    const rows = await q(sb.storage.from(BUCKET).createSignedUrls(paths, seconds));
+    return Object.fromEntries((rows || []).filter((r) => r.signedUrl).map((r) => [r.path, r.signedUrl]));
+  };
+  const viewed = new Set();
+  B.logView = async function logView(rid) {
+    if (viewed.has(rid)) return;
+    viewed.add(rid);
+    await rpc('log_document_view', { p_item: rid });
+  };
+
   // Each part saves on its own: a rejected listing never blocks a document submission. A failed part keeps
   // the local edit, reports the database's reason, and is retried on the next save.
   B.push = async function push() {
@@ -302,9 +365,9 @@
     if (assigned) DR.store.save();
     const now = sections(u);
     const errors = [];
-    const part = async (name, label, fn) => {
-      if (now[name] === pushed[name]) return;
-      try { await fn(); pushed[name] = now[name]; } catch (e) { errors.push(`${label}: ${e.message}`); console.error('[backend] push ' + name, e); }
+    const part = async (name, label, fn, force = false) => {
+      if (now[name] === pushed[name] && !force) return;
+      try { const saved = await fn(); pushed[name] = typeof saved === 'string' ? saved : now[name]; } catch (e) { errors.push(`${label}: ${e.message}`); console.error('[backend] push ' + name, e); }
     };
     await part('profile', 'Profile', () => q(sb.from('profiles').update(profilePayload(u)).eq('id', me)));
     // the listing row must exist before its services (foreign key); going live is checked by the database
@@ -320,6 +383,10 @@
     }
     await part('docs', 'Documents', async () => {
       const recs = verificationRecs(u);
+      // upload scans first so the document row lists them (reviewers read the list, not the device)
+      let filesChanged = false;
+      for (const [, r] of recs) if (await uploadDocFiles(r)) filesChanged = true;
+      if (filesChanged) DR.store.save();
       const prev = JSON.parse(pushed.docs || '[]');
       const prevById = Object.fromEntries(prev.map(([, rid, data]) => [rid, JSON.stringify(data)]));
       const changed = recs.filter(([, r]) => prevById[r.rid] !== JSON.stringify(strip(r)));
@@ -342,10 +409,16 @@
         await q(sb.from('verification_items').update({ data: strip(r) }).eq('id', r.rid));
       }
       const gone = [...known].filter((rid) => !recs.some(([, r]) => r.rid === rid));
-      if (gone.length) await q(sb.from('verification_items').delete().in('id', gone));
+      if (gone.length) {
+        // a deleted document takes its scans with it
+        const paths = prev.filter(([, rid]) => gone.includes(rid)).flatMap(([, , data]) => ((data && data.docs) || []).map((d) => d.path));
+        if (paths.length) await sb.storage.from(BUCKET).remove(paths);
+        await q(sb.from('verification_items').delete().in('id', gone));
+      }
       pushed.rids = [...known].filter((rid) => !gone.includes(rid));
       if (changed.length) { changed.forEach(([, r]) => { r.status = 'pending'; delete r.reason; }); DR.store.save(); }
-    });
+      return sections(u).docs;
+    }, verificationRecs(u).some(([, r]) => needsUpload(r)));
     // Lists: rows are added with `insert … on conflict do nothing` (a row another tab saved is fine) and removed by key.
     // Never an upsert that updates: users may only insert and delete these rows.
     const diff = (name) => {
