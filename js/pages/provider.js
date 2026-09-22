@@ -84,7 +84,7 @@
     if (!p) return DR.notFound('Provider not found', 'This profile may have been removed.');
     const me = DR.store.user();
     const own = me && me.id === p.id;
-    const followed = S().follows.providers.includes(p.id);
+    const followed = DR.store.lists().follows.providers.includes(p.id);
     if (!own) {
       const h = S().history;
       if (!h.length || h[0].id !== p.id) DR.store.update((s) => { s.history = [{ id: p.id, ts: Date.now() }, ...s.history.filter((x) => x.id !== p.id)].slice(0, 50); }, { render: false });
@@ -194,7 +194,7 @@
         const bio = el.querySelector('#bio'); if (bio) bio.onclick = () => bio.classList.toggle('clamp2');
         const toggleFollow = () => {
           if (own || !DR.signInFirst('Sign in to follow providers')) return;
-          DR.store.update((s) => { s.follows.providers = followed ? s.follows.providers.filter((x) => x !== p.id) : [p.id, ...s.follows.providers]; });
+          DR.store.update(() => { const f = DR.store.lists().follows; f.providers = followed ? f.providers.filter((x) => x !== p.id) : [p.id, ...f.providers]; });
           DR.ui.toast(followed ? 'Unfollowed' : `Following ${p.name} — we'll tell you when they're nearby`);
         };
         el.querySelector('#followTop').onclick = toggleFollow;
@@ -207,7 +207,7 @@
           DR.ui.sheet({ title: `Similar to “${esc(p.name)}”`, full: true, html: `<div class="plist flush">${sim.map((x) => DR.cards.provider(x)).join('') || '<p class="muted pad">No similar providers nearby.</p>'}</div>` });
         };
         el.querySelector('#more').onclick = () => {
-          const shopFollowed = p.shop && S().follows.shops.includes(p.shop);
+          const shopFollowed = p.shop && DR.store.lists().follows.shops.includes(p.shop);
           const sh = DR.ui.sheet({
             html: `<div class="action-grid">
               <button data-a="chat">${icon('chat', 26)}<span>Message</span></button>
@@ -230,9 +230,9 @@
                 if (a === 'call') DR.call.start(p.id);
                 if (a === 'orders') DR.router.go('/orders');
                 if (a === 'list') DR.router.go('/cart?tab=following');
-                if (a === 'shop') { DR.store.update((st) => { st.follows.shops = shopFollowed ? st.follows.shops.filter((x) => x !== p.shop) : [p.shop, ...st.follows.shops]; }, { render: false }); DR.ui.toast(shopFollowed ? 'Shop unfollowed' : 'Shop followed'); }
+                if (a === 'shop') { DR.store.update(() => { const f = DR.store.lists().follows; f.shops = shopFollowed ? f.shops.filter((x) => x !== p.shop) : [p.shop, ...f.shops]; }, { render: false }); DR.ui.toast(shopFollowed ? 'Shop unfollowed' : 'Shop followed'); }
                 if (a === 'hide' && await DR.ui.confirm({ title: `Hide ${esc(p.name)}?`, text: 'You won\'t see this provider in listings. You can undo this in Settings › Blocked providers.', ok: 'Hide', danger: true })) {
-                  DR.store.update((st) => { st.blocked.push(p.id); }, { render: false });
+                  DR.store.update(() => { const l = DR.store.lists(); if (!l.blocked.includes(p.id)) l.blocked.unshift(p.id); }, { render: false });
                   DR.ui.toast('Provider hidden'); DR.router.back('/nearby');
                 }
                 if (a === 'report') reportSheet(p);

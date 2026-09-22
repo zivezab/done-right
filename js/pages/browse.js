@@ -88,8 +88,9 @@
     const cc = S().country;
     const price = DR.data.catalogPrice(sub);
     const pros = DR.data.bySub(sub.id);
-    const followed = S().follows.services.includes(sub.id);
-    const inCart = S().cart.some((c) => c.subId === sub.id && !c.providerId);
+    const mine = DR.store.lists();
+    const followed = mine.follows.services.includes(sub.id);
+    const inCart = mine.cart.some((c) => c.subId === sub.id && !c.providerId);
     const proRow = (p) => {
       const svc = p.services.find((s) => s.subId === sub.id);
       const n = DR.avail.next(p, svc.duration);
@@ -132,10 +133,10 @@
           ${quoteBased ? `<a class="btn btn-primary grow" href="#/quote/new?sub=${sub.id}">Request quotes</a>` : `<button class="btn btn-primary grow" id="bookNow" ${pros.length ? '' : 'disabled'}>Book best match</button>`}
         </div>`,
       mount(el) {
-        el.querySelector('#fav').onclick = () => DR.signInFirst('Sign in to save services') && DR.store.update((s) => { s.follows.services = followed ? s.follows.services.filter((x) => x !== sub.id) : [sub.id, ...s.follows.services]; });
+        el.querySelector('#fav').onclick = () => DR.signInFirst('Sign in to save services') && DR.store.update(() => { const f = DR.store.lists().follows; f.services = followed ? f.services.filter((x) => x !== sub.id) : [sub.id, ...f.services]; });
         el.querySelector('#cart').onclick = () => {
           if (inCart) return DR.router.go('/cart');
-          DR.store.update((s) => { s.cart.unshift({ id: DR.u.uid('c'), subId: sub.id, providerId: null, addedAt: Date.now() }); });
+          DR.store.update(() => { DR.store.lists().cart.unshift({ id: DR.u.uuid(), subId: sub.id, providerId: null, addedAt: Date.now() }); });
           DR.ui.toast('Added to cart');
         };
         el.querySelector('#share').onclick = () => DR.share(sub.name, `Book ${sub.name} on Done Right`);

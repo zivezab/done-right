@@ -325,3 +325,63 @@ set role authenticated;
 select tests.throws($$select public.review_item('22222222-2222-4222-8222-222222222222', 'verified')$$, 'your own', 'staff cannot approve their own documents');
 reset role;
 select tests.login(null);
+
+-- ------------------------------------------------------------------ personal lists (follows, hidden providers, cart)
+-- the exact writes js/backend.js sends through PostgREST
+select tests.login(:C);
+set role authenticated;
+select tests.lives(format($$insert into public.follows (user_id, kind, target) values (auth.uid(), 'provider', %L), (auth.uid(), 'service', 'piano'), (auth.uid(), 'shop', 'Tan Swim School')
+  on conflict (user_id, kind, target) do nothing$$, :P), 'app: following providers, services and shops');
+select tests.lives(format($$insert into public.follows (user_id, kind, target) values (auth.uid(), 'provider', %L) on conflict (user_id, kind, target) do nothing$$, :P),
+  'app: re-adding a follow another tab already saved is a no-op');
+select tests.lives($$insert into public.hidden_providers (user_id, provider_id) values (auth.uid(), 'p-seed-1') on conflict (user_id, provider_id) do nothing$$, 'app: hiding a provider');
+select tests.lives($$insert into public.cart_items (user_id, service_id, provider_key, added_at) values (auth.uid(), 'piano', '', '2026-09-21T01:00:00Z'), (auth.uid(), 'painter', '', '2026-09-21T01:01:00Z')
+  on conflict (user_id, service_id, provider_key) do nothing$$, 'app: adding to the cart');
+select tests.lives($$insert into public.cart_items (user_id, service_id, provider_key, added_at) values (auth.uid(), 'piano', '', '2026-09-21T02:00:00Z')
+  on conflict (user_id, service_id, provider_key) do nothing$$, 'app: a service already in the cart is not added twice');
+select tests.ok((select count(*) = 3 from public.follows) and (select count(*) = 2 from public.cart_items) and (select count(*) = 1 from public.hidden_providers),
+  'owners read their own lists');
+select tests.throws(format($$insert into public.follows (user_id, kind, target) values (auth.uid(), 'provider', %L)
+  on conflict (user_id, kind, target) do update set user_id = excluded.user_id, kind = excluded.kind, target = excluded.target$$, :P),
+  'permission denied', 'list rows cannot be upserted (owner and key stay fixed)');
+select tests.throws($$update public.cart_items set service_id = 'painter' where service_id = 'piano'$$, 'permission denied', 'list rows cannot be edited');
+select tests.throws(format($$insert into public.follows (user_id, kind, target) values (%L, 'service', 'piano')$$, :D), 'row-level security', 'nobody can add to another user''s lists');
+select tests.throws($$insert into public.cart_items (user_id, service_id) values (auth.uid(), 'no-such-service')$$, 'foreign key', 'the cart only takes real services');
+select tests.throws($$insert into public.follows (user_id, kind, target) values (auth.uid(), 'provider', '')$$, 'check constraint', 'empty follow targets are refused');
+reset role;
+select tests.login(null);
+
+select tests.login(:D);
+set role authenticated;
+select tests.ok((select count(*) = 0 from public.follows) and (select count(*) = 0 from public.cart_items) and (select count(*) = 0 from public.hidden_providers),
+  'other users cannot see someone''s lists');
+delete from public.follows where kind = 'provider';
+delete from public.cart_items;
+insert into public.follows (user_id, kind, target) values (auth.uid(), 'provider', :P);
+select tests.ok((select followers = 2 from public.follower_counts(array[:P::text]) where provider_id = :P::text), 'follower counts include every account');
+reset role;
+select tests.login(null);
+select tests.ok((select count(*) = 3 from public.follows where user_id = :C) and (select count(*) = 2 from public.cart_items where user_id = :C),
+  'other users cannot delete someone''s lists');
+
+set role anon;
+select tests.ok((select followers = 2 from public.follower_counts(array[:P::text, 'nobody'])), 'guests see follower counts (an aggregate, never who follows)');
+select tests.throws($$select * from public.follows$$, 'permission denied', 'guests cannot read lists');
+reset role;
+
+select tests.login(:C);
+set role authenticated;
+select tests.lives(format($$delete from public.follows where user_id = auth.uid() and kind = 'provider' and target in (%L)$$, :P), 'app: unfollowing');
+select tests.lives($$delete from public.hidden_providers where user_id = auth.uid() and provider_id in ('p-seed-1')$$, 'app: unhiding a provider');
+select tests.lives($$delete from public.cart_items where user_id = auth.uid() and provider_key = '' and service_id in ('piano')$$, 'app: removing from the cart');
+select tests.ok((select count(*) = 2 from public.follows) and (select count(*) = 1 from public.cart_items) and (select count(*) = 0 from public.hidden_providers),
+  'removals only touch the chosen rows');
+select tests.ok((select followers = 1 from public.follower_counts(array[:P::text])), 'unfollowing lowers the count');
+reset role;
+select tests.login(null);
+select tests.login(:D);
+set role authenticated;
+select tests.lives($$insert into public.cart_items (user_id, service_id) select auth.uid(), id from public.service_types order by id limit 200$$, 'a cart holds up to 200 lines');
+select tests.throws($$insert into public.cart_items (user_id, service_id, provider_key) values (auth.uid(), 'piano', 'someone')$$, 'cart is full', 'the cart size is capped');
+reset role;
+select tests.login(null);

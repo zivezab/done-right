@@ -6,7 +6,7 @@
   const day = () => H.day(2);
 
   // Chainable stand-in for the supabase-js query builder: records every call, resolves via handler.
-  function mockClient(handler) {
+  function mockClient(handler, state = {}) {
     const calls = [];
     const builder = (table) => {
       const ops = [];
@@ -25,7 +25,7 @@
       from: builder,
       rpc(fn, args) { this.rpcs.push({ fn, args }); return builder('rpc:' + fn).eq('args', args); },
       auth: {
-        getSession: async () => ({ data: { session: { user: { id: ME } } } }),
+        getSession: async () => ({ data: { session: state.signedOut ? null : { user: { id: ME } } } }),
         onAuthStateChange() {},
         signOut: async () => ({ error: null }),
       },
@@ -64,6 +64,11 @@
       if (table === 'rpc:pay_order') { if (state.payError) throw new Error(state.payError); return orderRow({ status: 'upcoming', paid_at: new Date().toISOString() }); }
       if (table === 'rpc:provider_busy') return [{ local_date: day(), local_time: '14:00:00', duration_min: 60 }];
       if (table === 'rpc:expire_orders') return 0;
+      if (['follows', 'hidden_providers', 'cart_items'].includes(table)) {
+        if (ops.some((o) => ['insert', 'update', 'upsert', 'delete'].includes(o[0]))) { if (state.listError) throw new Error(state.listError); return null; }
+        return ((state.lists || {})[table] || []).slice();
+      }
+      if (table === 'rpc:follower_counts') return state.counts || [];
       throw new Error('unexpected ' + table);
     };
   }
@@ -72,7 +77,7 @@
   async function start(state = {}) {
     H.reset();
     original = original || Object.assign({}, DR.booking);
-    const client = mockClient(handler(state));
+    const client = mockClient(handler(state), state);
     await DR.backend.init({ client });
     return client;
   }
@@ -189,6 +194,120 @@
       const errors = await DR.backend.push();
       expect(errors.length).toBe(0);
       expect(c.calls.some((x) => x.table === 'verification_items' && x.ops.some((o) => o[0] === 'update'))).toBe(true);
+    }));
+  });
+
+  describe('backend adapter: follows, hidden providers and cart', () => {
+    const writes = (c, table, op) => c.calls.filter((x) => x.table === table && x.ops.some((o) => o[0] === op));
+    const lists = () => ({
+      follows: [{ kind: 'provider', target: PRO, created_at: '2026-09-20T00:00:00Z' }, { kind: 'service', target: 'piano', created_at: '2026-09-21T00:00:00Z' }],
+      hidden_providers: [{ provider_id: 'p-hidden', created_at: '2026-09-20T00:00:00Z' }],
+      cart_items: [{ service_id: 'painter', provider_key: '', added_at: '2026-09-20T00:00:00Z' }],
+    });
+    it('loads your lists from the server into your account', guard(async () => {
+      await start({ lists: lists() });
+      const l = DR.store.lists();
+      expect(l.follows.providers).toEqual([PRO]);
+      expect(l.follows.services).toEqual(['piano']);
+      expect(l.blocked).toEqual(['p-hidden']);
+      expect(l.cart.length).toBe(1);
+      expect(l.cart[0].subId).toBe('painter');
+      expect(l.cart[0].providerId).toBe(null);
+      expect(DR.store.s.userData[ME]).toBe(l);
+    }));
+    it('shows the server follower count, with your own follow applied live', guard(async () => {
+      await start({ lists: lists(), counts: [{ provider_id: PRO, followers: 5 }] });
+      expect(DR.data.provider(PRO).followers).toBe(5);   // 4 others + you
+      DR.store.update(() => { const f = DR.store.lists().follows; f.providers = f.providers.filter((x) => x !== PRO); }, { render: false });
+      expect(DR.data.provider(PRO).followers).toBe(4);
+    }));
+    it('adds rows with insert-or-ignore and removes them by key, never updating', guard(async () => {
+      const c = await start({ lists: lists() });
+      DR.store.update(() => {
+        const l = DR.store.lists();
+        l.follows.shops.unshift('Tan Swim School');
+        l.follows.providers = [];
+        l.blocked = [];
+        l.cart.unshift({ id: DR.u.uuid(), subId: 'piano', providerId: PRO, addedAt: Date.now() });
+      }, { render: false });
+      const errors = await DR.backend.push();
+      expect(errors).toEqual([]);
+      const add = writes(c, 'follows', 'upsert');
+      expect(add.length).toBe(1);
+      const [rows, opts] = add[0].ops.find((o) => o[0] === 'upsert').slice(1);
+      expect(rows).toEqual([{ user_id: ME, kind: 'shop', target: 'Tan Swim School' }]);
+      expect(opts).toEqual({ onConflict: 'user_id,kind,target', ignoreDuplicates: true });
+      const del = writes(c, 'follows', 'delete')[0].ops;
+      expect(del.filter((o) => o[0] === 'eq').map((o) => o.slice(1))).toEqual([['user_id', ME], ['kind', 'provider']]);
+      expect(del.find((o) => o[0] === 'in').slice(1)).toEqual(['target', [PRO]]);
+      expect(writes(c, 'hidden_providers', 'delete')[0].ops.find((o) => o[0] === 'in').slice(1)).toEqual(['provider_id', ['p-hidden']]);
+      const cart = writes(c, 'cart_items', 'upsert')[0].ops.find((o) => o[0] === 'upsert');
+      expect(cart[1].map((r) => [r.service_id, r.provider_key])).toEqual([['piano', PRO]]);
+      expect(cart[2].ignoreDuplicates).toBe(true);
+      expect(['follows', 'hidden_providers', 'cart_items'].some((t) => writes(c, t, 'update').length || writes(c, t, 'insert').length)).toBe(false);
+      const n = c.calls.length;
+      await DR.backend.push();
+      expect(c.calls.length).toBe(n);   // nothing changed → nothing sent
+    }));
+    it('removes a cart line by service and provider', guard(async () => {
+      const c = await start({ lists: lists() });
+      DR.store.update(() => { DR.store.lists().cart = []; }, { render: false });
+      await DR.backend.push();
+      const del = writes(c, 'cart_items', 'delete')[0].ops;
+      expect(del.filter((o) => o[0] === 'eq').map((o) => o.slice(1))).toEqual([['user_id', ME], ['provider_key', '']]);
+      expect(del.find((o) => o[0] === 'in').slice(1)).toEqual(['service_id', ['painter']]);
+    }));
+    it('a failed list save keeps the edit and retries it', guard(async () => {
+      const state = { lists: lists(), listError: 'offline' };
+      const c = await start(state);
+      DR.store.update(() => { DR.store.lists().follows.services.unshift('painter'); }, { render: false });
+      const errors = await DR.backend.push();
+      expect(errors).toEqual(['Following: offline']);
+      expect(DR.store.lists().follows.services).toContain('painter');
+      delete state.listError;
+      await DR.backend.push();
+      expect(writes(c, 'follows', 'upsert').length).toBe(2);
+    }));
+    it('keeps edits not yet saved when the server data is reloaded', guard(async () => {
+      await start({ lists: lists() });
+      DR.store.update(() => { const f = DR.store.lists().follows; f.services = ['painter']; }, { render: false });   // + painter, − piano
+      await DR.backend.hydrate();
+      expect(DR.store.lists().follows.services).toEqual(['painter']);
+      expect(DR.store.lists().follows.providers).toEqual([PRO]);
+    }));
+    it('brings a guest cart into the account on sign-in and saves it', guard(async () => {
+      H.reset();
+      DR.store.update((s) => { s.guestCart = [{ id: 'g1', subId: 'plumber', providerId: null, addedAt: Date.now() }, { id: 'g2', subId: 'painter', providerId: null, addedAt: Date.now() }]; }, { render: false });
+      const state = { lists: lists() };
+      const client = mockClient(handler(state), state);
+      await DR.backend.init({ client });
+      expect(DR.store.s.guestCart).toEqual([]);
+      expect(DR.store.lists().cart.map((c) => c.subId).sort()).toEqual(['painter', 'plumber']);
+      await DR.backend.push();
+      const up = client.calls.find((x) => x.table === 'cart_items' && x.ops.some((o) => o[0] === 'upsert'));
+      expect(up.ops.find((o) => o[0] === 'upsert')[1].map((r) => r.service_id)).toEqual(['plumber']);
+    }));
+    it('lists moved from device storage are added to the server', guard(async () => {
+      H.reset();
+      DR.store.s.userData[ME] = { follows: { providers: [], services: ['tutor'], shops: [] }, blocked: [], cart: [], fromDevice: true };
+      const state = { lists: lists() };
+      const client = mockClient(handler(state), state);
+      await DR.backend.init({ client });
+      expect(DR.store.lists().follows.services.sort()).toEqual(['piano', 'tutor']);
+      expect('fromDevice' in DR.store.lists()).toBe(false);
+      await DR.backend.push();
+      const up = client.calls.find((x) => x.table === 'follows' && x.ops.some((o) => o[0] === 'upsert'));
+      expect(up.ops.find((o) => o[0] === 'upsert')[1]).toEqual([{ user_id: ME, kind: 'service', target: 'tutor' }]);
+    }));
+    it('signing out removes your lists from this device', guard(async () => {
+      const state = { lists: lists() };
+      await start(state);
+      expect(!!DR.store.s.userData[ME]).toBe(true);
+      state.signedOut = true;
+      await DR.backend.hydrate();
+      expect(DR.store.sessionId()).toBe(null);
+      expect(DR.store.s.userData[ME]).toBe(undefined);
+      expect(DR.store.lists().follows.providers).toEqual([]);
     }));
   });
 

@@ -31,6 +31,7 @@
     const earnings = jobs.filter((o) => ['to_review', 'completed'].includes(o.status) && new Date(o.paidAt || o.createdAt).getMonth() === m).reduce((a, o) => a + o.price, 0);
     const trust = u ? DR.verify.score(u) : null;
     const unread = DR.chat.unreadTotal(DR.store.sessionId());
+    const mine = DR.store.lists();
     const upcomingJobs = jobs.filter((o) => o.status === 'upcoming').length;
     const services = [
       ['/verify', 'verified', 'Verification centre'], ['#invite', 'gift', 'Invite friends', 'Get S$10'], ['/quotes', 'quote', 'My quote requests'], ['/chat/support', 'headset', 'Customer support'],
@@ -51,8 +52,8 @@
             <div class="shortcuts"><a href="#/cart">${icon('cart', 24)}<small>Cart</small></a><a href="#/history">${icon('history', 24)}<small>History</small></a><a href="#/cart?tab=following&f=shops">${icon('store', 24)}<small>Shops</small></a></div>
           </div>
           <div class="follow-tiles">
-            <a class="ftile" href="#/cart?tab=following"><span class="ftile-ic">${s.follows.providers.length || icon('plus', 20)}</span><small>Followed pros</small></a>
-            <a class="ftile" href="#/cart?tab=following&f=services"><span class="ftile-ic">${s.follows.services.length || icon('plus', 20)}</span><small>Saved services</small></a>
+            <a class="ftile" href="#/cart?tab=following"><span class="ftile-ic">${mine.follows.providers.length || icon('plus', 20)}</span><small>Followed pros</small></a>
+            <a class="ftile" href="#/cart?tab=following&f=services"><span class="ftile-ic">${mine.follows.services.length || icon('plus', 20)}</span><small>Saved services</small></a>
           </div>
         </section>
         <section class="card"><div class="card-h"><h2>My orders</h2><a class="more" href="#/orders">All ${icon('right', 13)}</a></div>
@@ -246,7 +247,7 @@
     return {
       title: 'Settings',
       html: `${DR.ui.navbar({ title: ('Settings') })}
-      ${u ? `<div class="list card flush">${li('/settings/profile', 'Profile')}${li('/verify/identity', 'Identity verification', idLabel)}${li('/verify', 'Verification centre')}${li('/settings/addresses', 'Service addresses', `<span class="muted small">${(u.addresses || []).length}</span>`)}${btn('phone', 'Change mobile number', `<span class="muted small">${esc(u.phone || 'Not set')}</span>`)}${li('/settings/blocked', 'Blocked providers', `<span class="muted small">${s.blocked.length || ''}</span>`)}${li('/settings/notifications', 'Notifications')}${btn('delete', 'Delete account')}</div>` : ''}
+      ${u ? `<div class="list card flush">${li('/settings/profile', 'Profile')}${li('/verify/identity', 'Identity verification', idLabel)}${li('/verify', 'Verification centre')}${li('/settings/addresses', 'Service addresses', `<span class="muted small">${(u.addresses || []).length}</span>`)}${btn('phone', 'Change mobile number', `<span class="muted small">${esc(u.phone || 'Not set')}</span>`)}${li('/settings/blocked', 'Blocked providers', `<span class="muted small">${DR.store.lists().blocked.length || ''}</span>`)}${li('/settings/notifications', 'Notifications')}${btn('delete', 'Delete account')}</div>` : ''}
       <div class="list card flush">${li('/city', 'Country / region', `<span class="muted small">${DR.COUNTRIES[s.country].flag} ${esc(DR.COUNTRIES[s.country].name)}</span>`)}${btn('lang', 'Language', `<span class="muted small">${esc(DR.LANGS.find((l) => l[0] === s.lang)[1])}</span>`)}${btn('theme', 'Appearance', `<span class="muted small">${{ system: 'System', dark: 'Dark', light: 'Light' }[s.theme]}</span>`)}${btn('cache', 'Clear cached images', '<span class="muted small">2.1 MB</span>')}</div>
       <div class="list card flush">${btn('feedback', 'Feedback')}${li('/page/help', 'Help centre')}${btn('rate', 'Rate Done Right')}${li('/page/guidelines', 'Community guidelines')}${li('/page/terms', 'Terms of service')}${li('/page/privacy', 'Privacy policy')}${li('/page/data', 'Personal data we collect')}${li('/page/third-party', 'Third-party data sharing')}${li('/page/about', 'About Done Right')}${li('/admin', 'Trust & Safety console (demo)')}${btn('reset', 'Reset demo data')}</div>
       ${u ? '<div class="pad mb16"><button class="btn btn-ghost btn-block" id="logout">Log out</button></div>' : '<div class="pad mb16"><a class="btn btn-primary btn-block" href="#/auth?next=%2Fsettings">Sign in / Register</a></div>'}`,
@@ -277,6 +278,7 @@
             DR.files.collect(DR.store.s.users[id]).forEach((f) => DR.files.del(f));
             DR.store.update((st) => {
               delete st.users[id];
+              delete st.userData[id];
               Object.keys(st.idRegistry).forEach((h) => { if (st.idRegistry[h] === id) delete st.idRegistry[h]; });
               DR.store.audit({ actor: id, userId: id, item: 'Account', action: 'deleted (documents wiped)' });
             }, { render: false });
@@ -343,11 +345,11 @@
   });
 
   DR.page('/settings/blocked', () => {
-    const list = S().blocked.map((id) => DR.data.provider(id)).filter(Boolean);
+    const list = DR.store.lists().blocked.map((id) => DR.data.provider(id)).filter(Boolean);
     return {
       title: 'Blocked providers',
       html: `${DR.ui.navbar({ title: 'Blocked providers' })}<div class="card flush">${list.map((p) => `<div class="list-item"><span class="row gap10">${DR.cards.pimg(p, 0, 'av-sm round')}<b>${esc(p.name)}</b></span><button class="btn btn-ghost btn-xs" data-unblock="${p.id}">Unblock</button></div>`).join('') || '<p class="muted center pad-v">You haven\'t hidden any providers.</p>'}</div>`,
-      mount(el) { el.addEventListener('click', (e) => { const b = e.target.closest('[data-unblock]'); if (b) DR.store.update((s) => { s.blocked = s.blocked.filter((x) => x !== b.dataset.unblock); }); }); },
+      mount(el) { el.addEventListener('click', (e) => { const b = e.target.closest('[data-unblock]'); if (b) DR.store.update(() => { const l = DR.store.lists(); l.blocked = l.blocked.filter((x) => x !== b.dataset.unblock); }); }); },
     };
   });
 

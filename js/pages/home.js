@@ -54,7 +54,7 @@
       <div class="topbar">
         <a class="loc" href="#/city">${icon('pin', 18)}<span class="ellipsis">${esc(S().area)}</span>${icon('right', 14)}</a>
         <span class="grow"></span>
-        <a class="icon-btn" href="#/cart" aria-label="Cart">${icon('cart')}${S().cart.length ? `<i class="dot-badge">${S().cart.length}</i>` : ''}</a>
+        <a class="icon-btn" href="#/cart" aria-label="Cart">${icon('cart')}${DR.store.lists().cart.length ? `<i class="dot-badge">${DR.store.lists().cart.length}</i>` : ''}</a>
         <a class="icon-btn" href="#/messages" aria-label="Messages">${icon('chat')}${unread ? `<i class="dot-badge">${unread}</i>` : ''}</a>
       </div>
       <div class="pad"><a class="searchbar" href="#/search">${icon('search', 20, 'brand')}<span class="ellipsis">Search services, providers, shops</span>${icon('camera', 20)}</a></div>
