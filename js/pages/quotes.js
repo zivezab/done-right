@@ -55,18 +55,21 @@
           for (const file of [...e.target.files].slice(0, 4 - d.photos.length)) d.photos.push(await DR.files.fromInput(file, 1000));
           DR.router.refresh();
         });
-        el.querySelector('#send').onclick = () => {
+        el.querySelector('#send').onclick = async (e) => {
+          const btn = e.currentTarget;
+          if (btn.disabled) return;
           sync();
           if (!d.subId) return DR.ui.toast('Choose a service');
           if (d.mode === 'onsite' && !d.addr) return DR.ui.toast('Add the address where the job is');
           if (d.min && d.max && +d.min > +d.max) return DR.ui.toast('Budget “from” must be lower than “to”');
           try {
             const addr = addrs.find((x) => x.id === d.addr);
-            const q = DR.quotes.create({ user: u, subId: d.subId, title: d.title, details: d.details, photos: d.photos, mode: d.mode, address: d.mode === 'online' ? null : Object.assign({}, addr), date: d.date || null, timeOfDay: d.tod, budgetMin: d.min ? +d.min : null, budgetMax: d.max ? +d.max : null, providerId: pro ? pro.id : null });
+            const q = await DR.quotes.create({ user: u, subId: d.subId, title: d.title, details: d.details, photos: d.photos, mode: d.mode, address: d.mode === 'online' ? null : Object.assign({}, addr), date: d.date || null, timeOfDay: d.tod, budgetMin: d.min ? +d.min : null, budgetMax: d.max ? +d.max : null, providerId: pro ? pro.id : null });
+            btn.disabled = true;
             if (!q.invited.length) DR.ui.toast('No pros nearby yet — we\'ll notify you when one joins');
             delete drafts[key];
             DR.router.go('/quote/' + q.id, { replace: true });
-          } catch (err) { DR.ui.toast(err.message); }
+          } catch (err) { btn.disabled = false; DR.ui.toast(err.message); }
         };
       },
     };
@@ -117,7 +120,7 @@
         <section class="card"><div class="row between gap8"><h2 class="h2" data-no-i18n>${esc(q.title)}</h2>${qStatus(q.status)}</div>
           <div class="muted small mt4">${sub ? `${sub.emoji} ${esc(sub.name)}` : ''} · ${q.no}</div>
           <p class="small mt8 pre" data-no-i18n>${esc(q.details)}</p>
-          ${q.photos.length ? `<div class="review-photos mt8">${q.photos.map((p) => `<img data-file="${p.id}" alt="">`).join('')}</div>` : ''}
+          ${q.photos.length ? `<div class="review-photos mt8">${q.photos.map((p) => (p.path ? `<img data-qfile="${esc(p.path)}" alt="">` : `<img data-file="${p.id}" alt="">`)).join('')}</div>` : ''}
           <div class="kv mt8"><span>${icon('calendar', 14)} Preferred</span><b>${q.date ? fmtDate(q.date) : ('Flexible date')}${q.timeOfDay && q.timeOfDay !== 'any' ? ` · ${((TOD.find((t) => t[0] === q.timeOfDay) || TOD[0])[1])}` : ''}</b></div>
           ${q.budgetMin || q.budgetMax ? `<div class="kv"><span>${icon('wallet', 14)} Budget</span><b>${budgetLabel(q)}</b></div>` : ''}
           <div class="kv"><span>${icon(q.mode === 'online' ? 'video' : 'pin', 14)} Where</span><b data-no-i18n>${q.mode === 'online' ? ('Online') : esc(`${q.address.line}, ${q.address.area}`)}</b></div>
@@ -128,15 +131,20 @@
         </section>
         ${q.status === 'open' ? `<div class="bottom-bar"><button class="btn btn-ghost grow" id="close">Close request</button></div>` : ''}`,
       mount(el) {
+        DR.backend.showQuotePhotos(el);
         el.addEventListener('click', async (e) => {
           const acc = e.target.closest('[data-accept]');
           if (acc) {
             const o = q.offers.find((x) => x.id === acc.dataset.accept);
             if (!(await DR.ui.confirm({ title: `Accept ${money(o.price, q.country)} offer?`, text: `Books ${esc(o.providerName)} for ${fmtDate(o.date)}, ${o.time}. Other offers will be declined.`, ok: 'Accept & pay' }))) return;
-            try { const order = DR.quotes.accept(q.id, o.id, u); DR.router.go('/pay/' + order.id); } catch (err) { DR.ui.toast(err.message); DR.router.refresh(); }
+            try { const order = await DR.quotes.accept(q.id, o.id, u); DR.router.go('/pay/' + order.id); } catch (err) { DR.ui.toast(err.message); DR.router.refresh(); }
           }
-          const rej = e.target.closest('[data-reject]'); if (rej) { DR.quotes.rejectOffer(q.id, rej.dataset.reject); DR.router.refresh(); }
-          if (e.target.closest('#close') && await DR.ui.confirm({ title: 'Close this request?', text: 'Pending offers will expire.', ok: 'Close request', danger: true })) { DR.quotes.close(q.id); DR.router.refresh(); }
+          const rej = e.target.closest('[data-reject]');
+          if (rej) { try { await DR.quotes.rejectOffer(q.id, rej.dataset.reject); } catch (err) { DR.ui.toast(err.message); } DR.router.refresh(); }
+          if (e.target.closest('#close') && await DR.ui.confirm({ title: 'Close this request?', text: 'Pending offers will expire.', ok: 'Close request', danger: true })) {
+            try { await DR.quotes.close(q.id); } catch (err) { DR.ui.toast(err.message); }
+            DR.router.refresh();
+          }
         });
       },
     };
@@ -174,10 +182,10 @@
           const tm = e.target.closest('[data-time]'); if (tm) { st.time = tm.dataset.time; s.querySelector('#ob').innerHTML = body(); }
           const v = e.target.closest('[data-valid]'); if (v) { valid = +v.dataset.valid; s.querySelectorAll('[data-valid]').forEach((x) => x.classList.toggle('on', x === v)); }
         });
-        f.addEventListener('submit', (e) => {
+        f.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (!st.time) return DR.ui.toast('Pick a proposed time');
-          try { DR.quotes.offer(q.id, u.id, { price: +f.price.value, date: st.date, time: st.time, duration: st.duration, message: f.message.value, validDays: valid }); sh.close(); DR.ui.toast('Quote sent'); DR.router.refresh(); } catch (err) { DR.ui.toast(err.message); }
+          try { await DR.quotes.offer(q.id, u.id, { price: +f.price.value, date: st.date, time: st.time, duration: st.duration, message: f.message.value, validDays: valid }); sh.close(); DR.ui.toast('Quote sent'); DR.router.refresh(); } catch (err) { DR.ui.toast(err.message); }
         });
       },
     });
@@ -202,7 +210,7 @@
       return `<div class="ocard"><div class="row between"><b class="ellipsis" data-no-i18n>${esc(q.title)}</b>${qStatus(q.status)}</div>
         <div class="muted xs">${sub ? `${sub.emoji} ${esc(sub.name)}` : ''} · <span data-no-i18n>${esc(q.customerName || '')}</span> · ${q.address ? esc(q.address.area) : ('Online')} · ${DR.u.timeAgo(q.createdAt)}</div>
         <p class="small mt8 clamp3" data-no-i18n>${esc(q.details)}</p>
-        ${q.photos.length ? `<div class="review-photos mt8">${q.photos.map((p) => `<img data-file="${p.id}" alt="">`).join('')}</div>` : ''}
+        ${q.photos.length ? `<div class="review-photos mt8">${q.photos.map((p) => (p.path ? `<img data-qfile="${esc(p.path)}" alt="">` : `<img data-file="${p.id}" alt="">`)).join('')}</div>` : ''}
         <div class="row gap10 mt8 small muted"><span>${icon('calendar', 13)} ${q.date ? relDay(q.date) : ('Flexible')}</span>${q.budgetMax || q.budgetMin ? `<span>${icon('wallet', 13)} ${budgetLabel(q)}</span>` : ''}<span>${icon('users', 13)} ${q.offers.length} offers</span></div>
         ${o ? `<div class="order-flag">Your quote: <b>${money(o.price, q.country)}</b> · ${relDay(o.date)} ${o.time} · ${({ pending: 'Pending', accepted: 'Accepted', declined: 'Declined', expired: 'Expired' }[o.status])}</div>` : ''}
         ${tab === 'new' ? `<div class="ocard-actions"><button class="btn btn-ghost btn-sm" data-qdecline="${q.id}">Not interested</button><button class="btn btn-primary btn-sm" data-qoffer="${q.id}">Send quote</button></div>` : tab === 'won' && q.orderId ? `<div class="ocard-actions"><a class="btn btn-primary btn-sm" href="#/order/${q.orderId}">View job</a></div>` : ''}
@@ -214,9 +222,14 @@
         <nav class="tabs">${[['new', 'New'], ['sent', 'Sent'], ['won', 'Won'], ['lost', 'Closed']].map(([k, l]) => `<a class="tab-link ${tab === k ? 'on' : ''}" href="#/pro/quotes?tab=${k}">${l}${groups[k].length ? `<i class="count">${groups[k].length}</i>` : ''}</a>`).join('')}</nav>
         <div class="olist">${list.map(card).join('') || DR.ui.empty('clipboard', tab === 'new' ? 'No new requests right now<br><small class="muted">Requests matching your services appear here</small>' : 'Nothing here yet')}</div>`,
       mount(el) {
-        el.addEventListener('click', (e) => {
+        DR.backend.showQuotePhotos(el);
+        el.addEventListener('click', async (e) => {
           const off = e.target.closest('[data-qoffer]'); if (off) offerSheet(DR.quotes.find(off.dataset.qoffer), u);
-          const dec = e.target.closest('[data-qdecline]'); if (dec) { DR.quotes.declineRequest(dec.dataset.qdecline, u.id); DR.ui.toast('Request declined'); DR.router.refresh(); }
+          const dec = e.target.closest('[data-qdecline]');
+          if (dec) {
+            try { await DR.quotes.declineRequest(dec.dataset.qdecline, u.id); DR.ui.toast('Request declined'); } catch (err) { DR.ui.toast(err.message); }
+            DR.router.refresh();
+          }
         });
       },
     };

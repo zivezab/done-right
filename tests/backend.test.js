@@ -88,6 +88,19 @@
       if (table === 'chat_threads') return eq('id') ? (state.threads || []).find((t) => t.id === eq('id')) || null : state.threads || [];
       if (table === 'messages') return state.messages || [];
       if (table === 'chat_reads') return state.reads || [];
+      if (table === 'quote_requests') return state.mineQ || [];
+      if (table === 'quote_invites') return state.invites || [];
+      if (table === 'quote_offers') return state.offers || [];
+      if (table === 'provider_quote_inbox') return state.inbox || [];
+      if (table === 'rpc:create_quote') {
+        const a = eq('args');
+        state.createArgs = a;
+        state.mineQ = [quoteRow({ id: a.p_id, photos: a.p_photos.map((path) => ({ path })) })];
+        state.invites = [{ quote_id: a.p_id, provider_id: PRO, declined: false }];
+        return state.mineQ[0];
+      }
+      if (table === 'rpc:send_quote_offer') { state.offerArgs = eq('args'); return offerRow(); }
+      if (table === 'rpc:accept_quote_offer') return orderRow({ id: 'o-q', quote_id: 'q-1', price: '150.00', total: '150.00', unit: 'job' });
       if (table === 'rpc:chat_unread') return state.unread || [];
       if (table === 'rpc:mark_read') { state.marked = (state.marked || 0) + 1; return null; }
       if (table === 'rpc:send_message') {
@@ -105,6 +118,17 @@
     id: 'rv-1', provider_id: PRO, service_id: 'swimming-instructor', service_name: 'Swimming lessons', stars: 5, text: 'Great coach',
     tags: ['Patient'], area: 'Orchard', photos: [{ path: `${ME}/o-1/f_1.jpg` }], reply: 'Thank you!', reply_at: '2026-09-20T00:00:00Z',
     created_at: '2026-09-19T00:00:00Z', reviewer_name: 'Chris', anonymous: false, mine: false, repeat_customer: false,
+  }, extra);
+
+  const quoteRow = (extra = {}) => Object.assign({
+    id: 'q-1', no: 'Q00000001', customer_id: ME, service_id: 'swimming-instructor', country: 'SG', title: 'Swimming for 2 kids',
+    details: 'Two kids aged 6 and 8, beginners, weekends please.', photos: [], mode: 'onsite', address: { line: '1 Orchard Rd', area: 'Orchard' },
+    area: 'Orchard', preferred_date: null, time_of_day: 'any', budget_min: null, budget_max: '200.00', direct: false, status: 'open',
+    order_id: null, created_at: '2026-09-21T01:00:00Z', expires_at: '2026-09-28T01:00:00Z',
+  }, extra);
+  const offerRow = (extra = {}) => Object.assign({
+    id: 'of-1', quote_id: 'q-1', provider_id: PRO, price: '150.00', local_date: H.day(3), local_time: '10:00:00', duration_min: 60,
+    message: 'Includes floats', valid_until: new Date(Date.now() + 3 * 86400000).toISOString(), status: 'pending', created_at: '2026-09-21T02:00:00Z',
   }, extra);
 
   let original;
@@ -383,6 +407,52 @@
       await start(chatState());
       expect(DR.chat.notify(PRO, ME, '✅ Booking confirmed')).toBe(null);
       expect(DR.chat.get(ME, PRO).msgs.length).toBe(2);
+    }));
+  });
+
+  describe('backend adapter: quotes', () => {
+    it('shows my requests with offers, and requests I was invited to (area only)', guard(async () => {
+      await start({
+        mineQ: [quoteRow()], invites: [{ quote_id: 'q-1', provider_id: PRO, declined: false }],
+        offers: [offerRow(), offerRow({ id: 'of-0', status: 'replaced' })],
+        inbox: [{ id: 'q-9', no: 'Q9', customer_id: PRO, service_id: 'piano', country: 'SG', title: 'Piano', details: 'Adult beginner wants to learn pop songs.',
+          photos: [], mode: 'onsite', area: 'Bishan', preferred_date: null, time_of_day: 'evening', budget_min: null, budget_max: null, direct: true,
+          status: 'open', created_at: '2026-09-21T01:00:00Z', expires_at: '2026-09-28T01:00:00Z', declined: false, customer_name: 'Pat' }],
+      });
+      const mine = DR.quotes.find('q-1');
+      expect(mine.offers.length).toBe(1);                       // replaced offers are hidden
+      expect(mine.offers[0].providerName).toBe('Pat Tan');
+      expect(mine.offers[0].price).toBe(150);
+      expect(mine.invited).toEqual([PRO]);
+      const inbox = DR.quotes.forProvider(ME);
+      expect(inbox.map((x) => x.id)).toEqual(['q-9']);
+      expect(inbox[0].address).toEqual({ area: 'Bishan' });     // never the street address
+      expect(inbox[0].userId).toBe(PRO);
+    }));
+    it('creates a request through the database, with private job photos', guard(async () => {
+      const state = {};
+      const c = await start(state);
+      const id = await DR.files.put('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==');
+      const q = await DR.quotes.create({ user: DR.store.user(), subId: 'swimming-instructor', title: 'Swimming for 2 kids',
+        details: 'Two kids aged 6 and 8, beginners, weekends please.', photos: [{ id, image: true }], mode: 'onsite', address: { line: '1 Orchard Rd', area: 'Orchard' } });
+      expect(c.uploads[0].bucket).toBe('quote-photos');
+      expect(c.uploads[0].path).toBe(`${ME}/${state.createArgs.p_id}/${id}.jpg`);
+      expect(state.createArgs.p_photos).toEqual([c.uploads[0].path]);
+      expect(state.createArgs.p_service).toBe('swimming-instructor');
+      expect(q.id).toBe(state.createArgs.p_id);
+      expect(q.invited).toEqual([PRO]);
+    }));
+    it('sends offers and accepts them through the database', guard(async () => {
+      const state = { mineQ: [quoteRow()], invites: [{ quote_id: 'q-1', provider_id: PRO, declined: false }], offers: [offerRow()] };
+      const c = await start(state);
+      await DR.quotes.offer('q-1', ME, { price: 150, date: H.day(3), time: '10:00', duration: 60, message: 'x', validDays: 3 });
+      expect(state.offerArgs.p_price).toBe(150);
+      expect(state.offerArgs.p_quote).toBe('q-1');
+      const order = await DR.quotes.accept('q-1', 'of-1', DR.store.user());
+      expect(c.rpcs.some((r) => r.fn === 'accept_quote_offer' && r.args.p_offer === 'of-1')).toBe(true);
+      expect(order.id).toBe('o-q');
+      expect(order.total).toBe(150);
+      expect(DR.store.s.orders.some((o) => o.id === 'o-q')).toBe(true);
     }));
   });
 
