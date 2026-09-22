@@ -85,6 +85,16 @@
       if (table === 'rpc:follower_counts') return state.counts || [];
       if (table === 'rpc:log_document_view') return null;
       if (table === 'public_reviews') return state.reviews || [];
+      if (table === 'chat_threads') return eq('id') ? (state.threads || []).find((t) => t.id === eq('id')) || null : state.threads || [];
+      if (table === 'messages') return state.messages || [];
+      if (table === 'chat_reads') return state.reads || [];
+      if (table === 'rpc:chat_unread') return state.unread || [];
+      if (table === 'rpc:mark_read') { state.marked = (state.marked || 0) + 1; return null; }
+      if (table === 'rpc:send_message') {
+        if (state.sendError) throw new Error(state.sendError);
+        const a = eq('args');
+        return { id: 501, thread_id: 't-1', sender: ME, system: false, text: a.p_text, created_at: new Date().toISOString() };
+      }
       if (table === 'rpc:submit_review') { state.reviews = [reviewRow({ mine: true })]; return {}; }
       if (table === 'rpc:reply_to_review') return { id: 'rv-1', provider_id: PRO, reply: (ops.find((o) => o[0] === 'eq')[2] || {}).p_text || null, reply_at: new Date().toISOString() };
       throw new Error('unexpected ' + table);
@@ -301,6 +311,78 @@
       expect(DR.store.s.replies['rv-1'].text).toBe('Thanks for booking!');
       await DR.backend.replyToReview('rv-1', '');
       expect(DR.store.s.replies['rv-1']).toBe(undefined);
+    }));
+  });
+
+  describe('backend adapter: chat', () => {
+    const thread = { id: 't-1', member_a: PRO, member_b: ME, last_message_at: '2026-09-21T02:00:00Z', created_at: '2026-09-21T01:00:00Z' };
+    const msgs = [
+      { id: 11, thread_id: 't-1', sender: ME, system: false, text: 'Hi, free on Saturday?', created_at: '2026-09-21T01:00:00Z' },
+      { id: 12, thread_id: 't-1', sender: PRO, system: false, text: 'Yes, 10 am works!', created_at: '2026-09-21T02:00:00Z' },
+    ];
+    const chatState = (extra) => Object.assign({ threads: [thread], messages: msgs.slice(), unread: [{ thread_id: 't-1', unread: 1 }] }, extra);
+    it('loads conversations, messages and unread counts from the server', guard(async () => {
+      await start(chatState());
+      const th = DR.chat.get(ME, PRO);
+      expect(th.msgs.map((m) => m.text)).toEqual(['Hi, free on Saturday?', 'Yes, 10 am works!']);
+      expect(DR.chat.unreadTotal(ME)).toBe(1);
+      expect(DR.chat.name(PRO)).toBe('Pat Tan');
+      expect(DR.chat.isReal(PRO)).toBe(true);
+    }));
+    it('sends through the database and shows the message at once', guard(async () => {
+      const c = await start(chatState());
+      const m = DR.chat.send(ME, PRO, 'See you then');
+      expect(m.pending).toBe(true);
+      expect(DR.chat.get(ME, PRO).msgs.slice(-1)[0].text).toBe('See you then');
+      await H.sleep(20);
+      expect(c.rpcs.find((r) => r.fn === 'send_message').args).toEqual({ p_to: PRO, p_text: 'See you then' });
+      expect(m.id).toBe(501);
+      expect(m.pending).toBe(undefined);
+      await H.sleep(1400);
+      expect(DR.chat.get(ME, PRO).msgs.length).toBe(3);   // no demo auto-reply for real people
+    }));
+    it('removes a message the server refused and says why', guard(async () => {
+      await start(chatState({ sendError: 'You are sending messages too quickly — please wait a moment' }));
+      DR.chat.send(ME, PRO, 'spam');
+      await H.sleep(20);
+      expect(DR.chat.get(ME, PRO).msgs.length).toBe(2);
+      expect(document.getElementById('toast').textContent).toMatch(/too quickly/);
+    }));
+    it('adds incoming messages live and ignores its own echo', guard(async () => {
+      await start(chatState({ unread: [] }));
+      await DR.backend._test.onMessage({ new: { id: 13, thread_id: 't-1', sender: PRO, system: false, text: 'Bring goggles', created_at: new Date().toISOString() } });
+      expect(DR.chat.get(ME, PRO).msgs.slice(-1)[0].text).toBe('Bring goggles');
+      expect(DR.chat.unreadTotal(ME)).toBe(1);
+      const m = DR.chat.send(ME, PRO, 'Will do');
+      await DR.backend._test.onMessage({ new: { id: 777, thread_id: 't-1', sender: ME, system: false, text: 'Will do', created_at: new Date().toISOString() } });
+      await H.sleep(20);
+      expect(DR.chat.get(ME, PRO).msgs.filter((x) => x.text === 'Will do').length).toBe(1);
+      expect(m.pending).toBe(undefined);
+    }));
+    it('records read receipts on the server', guard(async () => {
+      const state = chatState();
+      await start(state);
+      DR.chat.markRead(ME, PRO);
+      expect(DR.chat.unreadTotal(ME)).toBe(0);
+      await H.sleep(900);
+      expect(state.marked).toBe(1);
+    }));
+    it('shows ✓ sent and ✓✓ read on my messages, updated live', guard(async () => {
+      await start(chatState({ reads: [{ thread_id: 't-1', user_id: PRO, last_read_at: '2026-09-21T01:30:00Z' }] }));
+      const th = DR.chat.get(ME, PRO);
+      expect(DR.chat.receipt(th.msgs[0], th, ME)).toBe('read');        // mine, sent 01:00, they read at 01:30
+      expect(DR.chat.receipt(th.msgs[1], th, ME)).toBe(null);          // theirs: no receipt
+      const m = DR.chat.send(ME, PRO, 'Great, see you');
+      expect(DR.chat.receipt(m, th, ME)).toBe('sending');
+      await H.sleep(20);
+      expect(DR.chat.receipt(m, th, ME)).toBe('sent');
+      DR.backend._test.onRead({ new: { thread_id: 't-1', user_id: PRO, last_read_at: new Date(Date.now() + 1000).toISOString() } });
+      expect(DR.chat.receipt(m, th, ME)).toBe('read');
+    }));
+    it('leaves booking updates between accounts to the database', guard(async () => {
+      await start(chatState());
+      expect(DR.chat.notify(PRO, ME, '✅ Booking confirmed')).toBe(null);
+      expect(DR.chat.get(ME, PRO).msgs.length).toBe(2);
     }));
   });
 

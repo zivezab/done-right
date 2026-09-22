@@ -236,6 +236,12 @@ DR.addI18N({
   'The customer kept the original time.': ['顾客保留了原时间。', 'Pelanggan mengekalkan masa asal.'],
   // backend & server-side booking rules
   'Staff only': ['仅限工作人员', 'Kakitangan sahaja'],
+  'Sending message': ['发送中', 'Menghantar mesej'], 'Message sent': ['已发送', 'Mesej dihantar'], 'Message read': ['已读', 'Mesej dibaca'],
+  'Choose who to message': ['请选择要发消息的对象', 'Pilih siapa untuk dihantar mesej'], 'Write a message first': ['请先输入消息', 'Tulis mesej dahulu'],
+  'Messages can be up to 2,000 characters': ['消息最多 2,000 个字符', 'Mesej boleh sehingga 2,000 aksara'],
+  'You can message providers, or people you have a booking with': ['您可以给服务者或与您有预约往来的人发消息', 'Anda boleh menghantar mesej kepada penyedia, atau orang yang anda ada tempahan bersama'],
+  'You are sending messages too quickly — please wait a moment': ['发送太频繁，请稍候再试', 'Anda menghantar mesej terlalu cepat — sila tunggu sebentar'],
+  'Conversation not found': ['未找到对话', 'Perbualan tidak dijumpai'],
   'You have already reviewed this booking': ['您已评价过此预约', 'Anda sudah mengulas tempahan ini'],
   'You can review a booking once the job is confirmed complete': ['确认服务完成后即可评价', 'Anda boleh mengulas selepas kerja disahkan selesai'],
   'Choose 1 to 5 stars': ['请选择 1 至 5 星', 'Pilih 1 hingga 5 bintang'], 'Write a few words about the service': ['请简单描述一下服务', 'Tulis sedikit tentang perkhidmatan'],

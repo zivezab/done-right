@@ -41,7 +41,8 @@
   };
   DR.chat = {
     tid: (a, b) => [a, b].sort().join('|'),
-    isReal: (id) => !!S().users[id],
+    // a real person (not a demo account): known locally, or any server account when a backend is connected
+    isReal: (id) => !!S().users[id] || !!(DR.backend && DR.backend.enabled && DR.backend.isAccount(id)),
     get(a, b) { return S().threads[this.tid(a, b)] || null; },
     ensure(a, b) {
       const tid = this.tid(a, b);
@@ -74,11 +75,19 @@
     },
     list(uid) { return Object.entries(S().threads).filter(([, t]) => t.members && t.members.includes(uid)).sort((a, b) => (b[1].updated || 0) - (a[1].updated || 0)); },
     peer(th, uid) { return th.members.find((m) => m !== uid) || uid; },
+    // Delivery status of one of my messages: 'sending' | 'sent' | 'read' (null for others' messages and local chats)
+    receipt(m, th, uid) {
+      if (!m || m.system || m.from !== uid || !th || !th.sid) return null;
+      if (m.pending) return 'sending';
+      const peer = th.members.find((x) => x !== uid);
+      return th.reads && th.reads[peer] && th.reads[peer] >= m.ts ? 'read' : 'sent';
+    },
     markRead(a, b) { const th = this.get(a, b); if (th && th.unread[a]) { th.unread[a] = 0; DR.store.save(); } },
     unreadTotal(uid) { if (!uid) return 0; return this.list(uid).reduce((n, [, t]) => n + ((t.unread && t.unread[uid]) || 0), 0); },
     name(id) {
       if (id === 'support') return 'Done Right Support';
       if (S().users[id]) return S().users[id].name || 'Done Right user';
+      if (DR.backend && DR.backend.enabled && DR.backend.nameOf(id)) return DR.backend.nameOf(id);
       if (String(id).startsWith('demo-')) { const o = S().orders.find((x) => x.userId === id); return o ? o.customerName : 'Customer'; }
       const p = DR.data.provider(id); return p ? p.name : 'User';
     },

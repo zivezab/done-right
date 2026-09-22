@@ -201,12 +201,13 @@
           q(sb.from('hidden_providers').select('provider_id, created_at').eq('user_id', me)),
           q(sb.from('cart_items').select('service_id, provider_key, added_at').eq('user_id', me)),
         ]);
-        mine = { profile, prov, myServices, myItems, orders, lists: { follows, hidden, cart } };
+        mine = { profile, prov, myServices, myItems, orders, lists: { follows, hidden, cart }, chat: await loadChat() };
         B.staff = !!staff;
       } else B.staff = false;
 
       const ids = new Set(live.map((p) => p.user_id));
       if (mine) mine.orders.forEach((o) => { ids.add(o.customer_id); ids.add(o.provider_id); });
+      if (mine && mine.chat) mine.chat.threads.forEach((t) => { ids.add(t.member_a); ids.add(t.member_b); });
       if (ids.size) {
         const pubs = await q(sb.from('public_profiles').select('*').in('id', [...ids]));
         pubs.forEach((p) => { names[p.id] = p.name || 'Done Right user'; B._pub = B._pub || {}; B._pub[p.id] = p; });
@@ -250,6 +251,7 @@
         s.orders = [];
       }
       applyReviews(reviewRows);
+      if (mine && mine.chat) applyChat(mine.chat);
       DR.store.setSession(me && s.users[me] ? me : null);   // also saves; brings along a guest's cart
       if (me && s.users[me]) snapshotPushed(s.users[me]);
       subscribe();
@@ -537,6 +539,9 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `customer_id=eq.${me}` }, onOrder)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `provider_id=eq.${me}` }, onOrder)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'verification_items', filter: `user_id=eq.${me}` }, () => B.hydrate())
+      // members-only by RLS: each person receives just their own conversations
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, onMessage)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reads' }, onRead)
       .subscribe();
   }
 
@@ -578,6 +583,124 @@
     try { await sb.auth.signOut(); } catch (e) { /* offline: local session is cleared anyway */ }
     await B.hydrate();
   };
+  // ------------------------------------------------------------------ chat
+  // Conversations with real accounts live on the server (members-only); "support" and demo peers stay local.
+  // The local thread store stays the UI's source, so the chat screens are unchanged.
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const serverPeer = (id) => UUID.test(String(id || ''));
+  const threadIds = {};   // server thread id → local tid
+  async function loadChat() {
+    try {
+      const [threads, msgs, unread, reads] = await Promise.all([
+        q(sb.from('chat_threads').select('*').order('last_message_at', { ascending: false, nullsFirst: false }).limit(200)),
+        q(sb.from('messages').select('*').order('id', { ascending: false }).limit(1500)),
+        rpc('chat_unread', {}),
+        // read receipts (both members); optional until the read-receipts migration is applied
+        q(sb.from('chat_reads').select('*')).catch(() => []),
+      ]);
+      return { threads, msgs, unread, reads };
+    } catch (e) { console.warn('[backend] chat unavailable:', e.message); return null; }
+  }
+  const mapMsg = (m) => ({ id: m.id, from: m.sender, text: m.text, ts: ms(m.created_at), system: !!m.system });
+  function applyChat({ threads, msgs, unread, reads = [] }) {
+    const s = S();
+    // server conversations are rebuilt; local ones (support, demo accounts) are kept
+    Object.keys(s.threads).forEach((tid) => { const t = s.threads[tid]; if (t.members && t.members.every(serverPeer)) delete s.threads[tid]; });
+    const unreadBy = Object.fromEntries((unread || []).map((u) => [u.thread_id, u.unread]));
+    threads.forEach((t) => {
+      const tid = DR.chat.tid(t.member_a, t.member_b);
+      threadIds[t.id] = tid;
+      s.threads[tid] = {
+        sid: t.id, members: [t.member_a, t.member_b].sort(), updated: ms(t.last_message_at || t.created_at),
+        msgs: msgs.filter((m) => m.thread_id === t.id).sort((a, b) => a.id - b.id).map(mapMsg),
+        unread: { [me]: unreadBy[t.id] || 0 },
+        reads: Object.fromEntries(reads.filter((r) => r.thread_id === t.id).map((r) => [r.user_id, ms(r.last_read_at)])),
+      };
+    });
+  }
+  // the other person read the conversation (or I did, on another device)
+  function onRead(payload) {
+    const row = payload.new;
+    const tid = row && threadIds[row.thread_id];
+    if (!tid || !S().threads[tid]) return;
+    const th = S().threads[tid];
+    th.reads = th.reads || {};
+    th.reads[row.user_id] = Math.max(th.reads[row.user_id] || 0, ms(row.last_read_at));
+    if (row.user_id === me) th.unread[me] = 0;
+    DR.store.save();
+    DR.emit('chat', { tid });
+  }
+  B.nameOf = (id) => names[id] || null;
+  B.isAccount = serverPeer;
+  const readTimers = {};
+  function installChat() {
+    const chat = DR.chat;
+    if (chat._server) return;
+    chat._server = true;
+    const local = { send: chat.send, notify: chat.notify, markRead: chat.markRead };
+    chat.send = function send(from, to, text, opts = {}) {
+      if (!B.enabled || from !== me || !serverPeer(to)) return local.send.call(this, from, to, text, opts);
+      text = String(text || '').trim();
+      if (!text) return null;
+      const tid = this.tid(from, to);
+      const th = this.ensure(from, to);
+      const m = { from, text, ts: Date.now(), system: false, pending: true };   // shown at once, confirmed below
+      th.msgs.push(m); th.updated = m.ts;
+      DR.store.save();
+      DR.emit('chat', { tid, m });
+      rpc('send_message', { p_to: to, p_text: text }).then((row) => {
+        if (th.msgs.some((x) => x.id === row.id)) th.msgs.splice(th.msgs.indexOf(m), 1);   // realtime got here first
+        else { m.id = row.id; m.ts = ms(row.created_at); delete m.pending; }
+        th.sid = row.thread_id; threadIds[row.thread_id] = tid;
+        DR.store.save(); DR.emit('chat', { tid });
+      }).catch((e) => {
+        th.msgs.splice(th.msgs.indexOf(m), 1);
+        DR.store.save(); DR.emit('chat', { tid });
+        DR.ui.toast(e.message);
+      });
+      return m;
+    };
+    // booking updates between two accounts are posted by the database itself
+    chat.notify = function notify(from, to, text) {
+      if (B.enabled && serverPeer(from) && serverPeer(to)) return null;
+      return local.notify.call(this, from, to, text);
+    };
+    chat.markRead = function markRead(a, b) {
+      local.markRead.call(this, a, b);
+      const th = this.get(a, b);
+      if (!B.enabled || a !== me || !th || !th.sid) return;
+      clearTimeout(readTimers[th.sid]);
+      readTimers[th.sid] = setTimeout(() => rpc('mark_read', { p_thread: th.sid }).catch(() => {}), 800);
+    };
+  }
+  async function onMessage(payload) {
+    const row = payload.new;
+    if (!row || !row.id) return;
+    let tid = threadIds[row.thread_id];
+    if (!tid) {
+      const t = await q(sb.from('chat_threads').select('*').eq('id', row.thread_id).maybeSingle());
+      if (!t) return;
+      tid = DR.chat.tid(t.member_a, t.member_b);
+      threadIds[t.id] = tid;
+      await ensureNames({ customer_id: t.member_a, provider_id: t.member_b });
+      S().threads[tid] = S().threads[tid] || { members: [t.member_a, t.member_b].sort(), msgs: [], unread: {}, updated: 0 };
+      S().threads[tid].sid = t.id;
+    }
+    const th = S().threads[tid];
+    if (th.msgs.some((x) => x.id === row.id)) return;
+    // my own message arriving back: confirm the pending copy instead of adding a second one
+    const pending = row.sender === me && th.msgs.find((x) => x.pending && x.text === row.text);
+    if (pending) { pending.id = row.id; pending.ts = ms(row.created_at); delete pending.pending; }
+    else {
+      th.msgs.push(mapMsg(row));
+      if (row.sender !== me) th.unread[me] = (th.unread[me] || 0) + 1;
+    }
+    th.updated = ms(row.created_at);
+    DR.store.save();
+    DR.emit('chat', { tid });
+    DR.emit('sync');
+  }
+
   // ------------------------------------------------------------------ reviews
   // Reviews come from public_reviews (reviewer's account never exposed); writes go through database functions.
   const PHOTOS = 'review-photos';
@@ -640,6 +763,7 @@
     }
     B.enabled = true;
     installBooking();
+    installChat();
     if (!B._listening) { DR.on('saved', schedulePush); B._listening = true; }
     if (sb.auth.onAuthStateChange) {
       sb.auth.onAuthStateChange((event) => {
@@ -666,5 +790,5 @@
     else if (link.returned && (!me || link.wasSignedIn)) DR.ui.toast('Open the sign-in link in the same browser window you requested it from — copy the link from the email and paste it into that window', 9000);
     return true;
   };
-  B._test = { mapOrder, mapVerification, mapLists, keepPending, listKeys, providerPayload, servicesPayload, profilePayload, strip, sections, reset() { clearTimeout(pushTimer); sb = null; me = null; pushed = {}; pushedUser = null; followerBase = {}; B.enabled = false; B.staff = false; if (channel) channel = null; } };
+  B._test = { onMessage, onRead, threadIds, mapOrder, mapVerification, mapLists, keepPending, listKeys, providerPayload, servicesPayload, profilePayload, strip, sections, reset() { clearTimeout(pushTimer); sb = null; me = null; pushed = {}; pushedUser = null; followerBase = {}; B.enabled = false; B.staff = false; if (channel) channel = null; } };
 })(window.DR);

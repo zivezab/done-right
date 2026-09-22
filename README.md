@@ -21,11 +21,11 @@ The app is fully client-side. State lives in `localStorage` (follows, hidden pro
 
 ## Tests
 
-Open http://localhost:5173/tests/index.html. The suite has 133 tests covering availability, booking and rescheduling, quotes, licensing, verification, chat, search, SEO, i18n, per-account lists, the Supabase adapter (against a mock client) and performance budgets. It runs in the browser against isolated storage (`doneright.test.v1`), so your demo data is untouched. Results are also exposed as `window.__TESTS__` for automation.
+Open http://localhost:5173/tests/index.html. The suite has 140 tests covering availability, booking and rescheduling, quotes, licensing, verification, chat, search, SEO, i18n, per-account lists, the Supabase adapter (against a mock client) and performance budgets. It runs in the browser against isolated storage (`doneright.test.v1`), so your demo data is untouched. Results are also exposed as `window.__TESTS__` for automation.
 
 The i18n specs crawl about 42 routes in both 中文 and Bahasa Melayu, and fail on any untranslated UI string. Missing strings are listed in `window.__MISSING_ZH__` and `window.__MISSING_MS__`.
 
-The database has its own suite of 147 checks, run against a throwaway local Postgres (`brew install postgresql@16`):
+The database has its own suite of 171 checks, run against a throwaway local Postgres (`brew install postgresql@16`):
 
 ```bash
 python3 tools/db_test.py
@@ -129,7 +129,7 @@ tools/build_seo.py      # static landing pages + sitemap
 
 ## Towards production
 
-- **Backend.** Done for accounts, provider listings, document details and bookings (see *Backend (Supabase)*). Still to move to the server: chat and quotes.
+- **Backend.** Done for accounts, provider listings, document details and bookings (see *Backend (Supabase)*). Still to move to the server: quotes, plus live presence and calls across devices.
 - **Realtime and calls.** Replace the BroadcastChannel transport with WebSockets, and use a CPaaS (Twilio, Vonage, 8x8) for number masking and PSTN calls.
 - **Auth.** An SMS/email OTP provider, plus Singpass MyInfo (SG) and MyDigital ID (MY).
 - **Payments and payouts.** A PayNow / DuitNow / FPX-capable PSP with escrow-style capture and weekly payouts. The database is ready for it: a webhook calls `confirm_payment`, and demo payments are switched off in `app_config`.
