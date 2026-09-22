@@ -27,6 +27,13 @@
     },
   };
 
+  // Countries this launch serves (DR.CONFIG.markets), in order; the first is the default.
+  DR.markets = () => {
+    const list = ((DR.CONFIG && DR.CONFIG.markets) || Object.keys(DR.COUNTRIES)).filter((cc) => DR.COUNTRIES[cc]);
+    return list.length ? list : ['SG'];
+  };
+  DR.marketCountries = () => DR.markets().map((cc) => DR.COUNTRIES[cc]);
+
   const A = (n, r, lat, lng, w = 1) => ({ n, r, lat, lng, w });
   DR.AREAS = {
     SG: [

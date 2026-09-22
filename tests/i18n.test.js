@@ -37,7 +37,7 @@ describe('i18n coverage on rendered screens', () => {
   async function crawl(lang) {
     const frame = document.createElement('iframe');
     frame.style.cssText = 'width:390px;height:800px;position:fixed;left:-9999px';
-    frame.src = `../index.html?sandbox=i18n-${lang}&lang=${lang}&backend=off#/`;
+    frame.src = `../index.html?sandbox=i18n-${lang}&lang=${lang}&backend=off&langs=all#/`;
     document.body.appendChild(frame);
     await new Promise((r) => { frame.onload = r; });
     await H.sleep(400);

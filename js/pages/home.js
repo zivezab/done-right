@@ -94,11 +94,11 @@
 
       <div class="trust">
         <div>${icon('verified', 22)}<b>100%</b><small>ID-verified pros</small></div>
-        <div>${icon('globe', 22)}<b>SG & MY</b><small>${esc(C.name)} coverage</small></div>
+        <div>${icon('globe', 22)}${DR.markets().length > 1 ? `<b>SG & MY</b><small>${esc(C.name)} coverage</small>` : `<b>${DR.AREAS[DR.markets()[0]].length}</b><small>Areas covered</small>`}</div>
         <div>${icon('grid', 22)}<b>${DR.ALL_SUBS.length}+</b><small>Service types</small></div>
         <div>${icon('headset', 22)}<b>24 hrs</b><small>Support</small></div>
       </div>
-      <p class="foot-note">Done Right · Book with confidence in Singapore & Malaysia</p>`,
+      <p class="foot-note">${DR.markets().length > 1 ? 'Done Right · Book with confidence in Singapore & Malaysia' : 'Done Right · Book with confidence in Singapore'}</p>`,
       mount(el) {
         const track = el.querySelector('#banner');
         const dots = el.querySelectorAll('.banner-dots i');
@@ -170,7 +170,7 @@
       title: 'Choose location',
       html: `${DR.ui.navbar({ title: 'Choose location' })}
       <div class="pad">
-        ${DR.ui.seg([['SG', '🇸🇬 Singapore'], ['MY', '🇲🇾 Malaysia']], cc, 'cc')}
+        ${DR.markets().length > 1 ? DR.ui.seg(DR.marketCountries().map((c) => [c.code, `${c.flag} ${c.name}`]), cc, 'cc') : ''}
         <div class="searchbar searchbar-outline mt12">${icon('search', 18)}<input id="cq" type="search" placeholder="Search area, town or city" autocomplete="off"></div>
         <div class="row between mt16"><div><div class="muted xs">Current location</div><b class="h2">${esc(s.area)}</b> <span class="muted small">${esc(DR.area(s.area).r)}</span></div>
         <button class="icon-btn brand" id="locate" aria-label="Use my location">${icon('target', 24)}</button></div>
@@ -205,8 +205,8 @@
           navigator.geolocation.getCurrentPosition((pos) => {
             const me = { lat: pos.coords.latitude, lng: pos.coords.longitude };
             let best = null; let bestD = Infinity; let bestCc = 'SG';
-            ['SG', 'MY'].forEach((k) => DR.AREAS[k].forEach((a) => { const d = Math.hypot(a.lat - me.lat, a.lng - me.lng); if (d < bestD) { bestD = d; best = a; bestCc = k; } }));
-            if (bestD > 3) return DR.ui.toast('Done Right is available in Singapore and Malaysia only');
+            DR.markets().forEach((k) => DR.AREAS[k].forEach((a) => { const d = Math.hypot(a.lat - me.lat, a.lng - me.lng); if (d < bestD) { bestD = d; best = a; bestCc = k; } }));
+            if (bestD > 3) return DR.ui.toast(DR.markets().length > 1 ? 'Done Right is available in Singapore and Malaysia only' : 'Done Right is available in Singapore only');
             DR.store.update((st) => { st.country = bestCc; st.area = best.n; st.geo = { lat: me.lat, lng: me.lng, country: bestCc }; }, { render: false });
             DR.ui.toast(`You're near ${best.n}`);
             DR.router.back('/');

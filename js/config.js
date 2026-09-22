@@ -14,6 +14,10 @@
     siteUrl: 'https://doneright.example',
     // Masked-number relay prefixes (production: provisioned numbers from a CPaaS such as Twilio / Vonage / 8x8)
     relay: { SG: '+65 3159', MY: '+60 3-2785' },
+    // Launch scope. Markets and languages not listed are hidden everywhere (pickers, sign-in, SEO), but their
+    // data and translations stay in the code, so adding 'MY' or 'ms' back switches them on again.
+    markets: ['SG'],
+    languages: ['en', 'zh'],
     // Supabase backend (see supabase/ and README "Backend"). Leave url empty for local demo mode.
     // anonKey is the public "anon" key; never put the service-role key in client code.
     supabase: { url: '', anonKey: '', showSeeds: false },
