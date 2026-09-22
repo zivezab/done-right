@@ -364,7 +364,7 @@
       html: `<form class="form" id="kf" novalidate>
         ${suggestions.length && !existing ? `<div><span class="field-label">Suggested for your services</span><div class="chips">${suggestions.map(([n, i]) => `<button type="button" class="chip" data-sug="${esc(n)}|${esc(i)}">${esc(n)}</button>`).join('')}</div></div>` : ''}
         ${K.fields.map((fd) => fieldHTML(fd, draft, ctx)).join('')}
-        <datalist id="schools">${Object.values(DR.COUNTRIES).flatMap((c) => c.schools).map((s) => `<option value="${esc(s)}">`).join('')}</datalist>
+        <datalist id="schools">${DR.marketCountries().flatMap((c) => c.schools).map((s) => `<option value="${esc(s)}">`).join('')}</datalist>
         <div class="row gap10 mt8">${existing ? '<button type="button" class="btn btn-ghost" id="del">Delete</button>' : ''}<button class="btn btn-primary grow">Save & submit for review</button></div>
       </form>`,
       mount(s) {

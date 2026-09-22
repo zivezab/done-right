@@ -99,7 +99,7 @@
       return {
         title: 'Become a provider', bar: true,
         html: `${DR.ui.navbar({ title: 'Provider centre' })}
-          <section class="pro-hero"><h1>Turn your skills into income</h1><p>Join ${DR.ALL_SUBS.length}+ service categories across Singapore & Malaysia — from swimming coaches and singing teachers to ML engineers and home cleaners.</p><div class="pro-hero-art" aria-hidden="true">🏊🎤🤖🧹📚</div></section>
+          <section class="pro-hero"><h1>Turn your skills into income</h1><p>Join ${DR.ALL_SUBS.length}+ service categories across ${DR.markets().length > 1 ? 'Singapore & Malaysia' : 'Singapore'} — from swimming coaches and singing teachers to ML engineers and home cleaners.</p><div class="pro-hero-art" aria-hidden="true">🏊🎤🤖🧹📚</div></section>
           <section class="card"><ul class="value-list">
             <li>${icon('calendar', 22, 'brand')}<div><b>Your schedule, your rules</b><p class="muted small">Weekly hours, blocked slots, instant or request-to-book, and your own reschedule lock period.</p></div></li>
             <li>${icon('quote', 22, 'brand')}<div><b>Quote for custom jobs</b><p class="muted small">Receive quote requests from nearby customers and win jobs with your price.</p></div></li>

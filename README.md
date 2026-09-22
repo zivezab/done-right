@@ -7,6 +7,17 @@ An English-first, mobile-friendly marketplace web app for home, lifestyle and pr
 - **A yellow-pages directory.** 303 service types in 24 groups: every category from the 到位 screenshots, plus tuition, languages, music (singing coach, piano…), sports (swimming instructor…), tech (software engineer, ML engineer, AI expert…), business, creative, events, renovation, pets, errands and more.
 - **Provider-controlled scheduling.** Weekly hours, slot length, date overrides, per-slot blocking and booking rules (instant vs request-to-book, reschedule lock period, notice, booking window, buffers).
 
+## Launch scope
+
+The first launch is **Singapore only**, in **English and Chinese**. Two settings in `js/config.js` control this:
+
+```js
+markets: ['SG'],          // add 'MY' to bring Malaysia back
+languages: ['en', 'zh'],  // add 'ms' to bring Bahasa Melayu back
+```
+
+Anything outside the launch is hidden everywhere: the country pickers, the +60 sign-in prefix, Malaysian payment methods and schools, the Malay language option, the `hreflang` tags and the SEO pages. People with an old Malaysian or Malay setting, or an old `?lang=ms` link, are moved to Singapore and English. The Malaysian data, licences and Malay translations all stay in the code, and the translation tests still check them (using `?langs=all`), so switching them back on is just a settings change. The SEO generator follows the same rule: it publishes Singapore by default, and `--markets SG,MY` publishes both.
+
 ## Run it
 
 No build step and no dependencies. Start the bundled no-cache dev server:

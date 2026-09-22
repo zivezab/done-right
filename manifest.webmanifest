@@ -1,7 +1,7 @@
 {
-  "name": "Done Right — Services in Singapore & Malaysia",
+  "name": "Done Right — Services in Singapore",
   "short_name": "Done Right",
-  "description": "Book verified home, lifestyle and professional services in Singapore and Malaysia.",
+  "description": "Book verified home, lifestyle and professional services in Singapore.",
   "start_url": "./#/",
   "display": "standalone",
   "background_color": "#111113",

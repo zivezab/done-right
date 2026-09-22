@@ -4,7 +4,7 @@
 The app is a hash-routed SPA, which crawlers index poorly. This script prerenders crawlable,
 server-side HTML landing pages from the same data files the app uses:
 
-  /sg/  /my/                                 country hubs
+  /sg/  (/my/ with --markets SG,MY)           country hubs
   /sg/categories/<group>/                    category pages (e.g. /sg/categories/tuition/)
   /sg/<service>/                             service pages (e.g. /sg/swimming-instructor/)
   /sg/<service>/<area>/                      hot services x popular areas (e.g. /my/aircon-servicing/petaling-jaya/)
@@ -137,7 +137,7 @@ def page(base, path, title, desc, body, ld, alternates=None, lang='en'):
 <script type="application/ld+json">{json.dumps(ld, ensure_ascii=False)}</script>
 </head>
 <body><main>{body}
-<footer>Done Right: verified home, lifestyle and professional services in Singapore &amp; Malaysia. <a href="/sg/">Singapore</a> · <a href="/my/">Malaysia</a></footer>
+<footer>Done Right: verified home, lifestyle and professional services in {' &amp; '.join(COUNTRIES[m]['name'] for m in MARKETS)}. {' · '.join(f'<a href="/{m.lower()}/">{COUNTRIES[m]["name"]}</a>' for m in MARKETS)}</footer>
 </main></body></html>
 """
 
@@ -151,7 +151,12 @@ def breadcrumb_ld(base, items):
         {'@type': 'ListItem', 'position': i + 1, 'name': t, **({'item': base + h} if h else {})} for i, (t, h) in enumerate(items)]}
 
 
-def build(base, out):
+MARKETS = ('SG',)   # set by build(); used by the page footer
+
+
+def build(base, out, markets=('SG',)):
+    global MARKETS
+    MARKETS = markets
     groups, hot = load_categories()
     areas, pop = load_areas()
     subs = {s['id']: s for g in groups for s in g['subs']}
@@ -172,9 +177,12 @@ def build(base, out):
         urls.append((path, prio))
 
     for cc, C in COUNTRIES.items():
+        if cc not in markets:
+            continue
         pre = f'/{cc.lower()}'
         other = '/my' if cc == 'SG' else '/sg'
-        alt = lambda p: [(C['lang'], pre + p), ('en-MY' if cc == 'SG' else 'en-SG', other + p), ('x-default', '/sg' + p)]
+        # alternates only between markets that are live
+        alt = lambda p: [(C['lang'], pre + p)] + ([('en-MY' if cc == 'SG' else 'en-SG', other + p)] if len(markets) > 1 else []) + [('x-default', f'/{markets[0].lower()}' + p)]
         price = lambda s: nice(s['price'] * C['rate'])
 
         # country hub
@@ -250,6 +258,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--base', default='https://doneright.example', help='public site origin, no trailing slash')
     ap.add_argument('--out', default=os.path.join(ROOT, 'dist'), help='output directory (default: dist/)')
+    ap.add_argument('--markets', default='SG', help='comma-separated markets to publish, e.g. SG or SG,MY (keep in step with js/config.js)')
     a = ap.parse_args()
-    n = build(a.base.rstrip('/'), a.out)
+    n = build(a.base.rstrip('/'), a.out, tuple(m.strip().upper() for m in a.markets.split(',') if m.strip()))
     print(f'Wrote {n} URLs to {a.out} (sitemap.xml, robots.txt, landing pages)')

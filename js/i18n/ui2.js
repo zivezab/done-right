@@ -235,7 +235,14 @@ DR.addI18N({
   'Sample booking created in demo mode.': ['演示模式创建的示例预约。', 'Tempahan contoh dicipta dalam mod demo.'], 'The provider could not accommodate your reschedule request. Your original time stays.': ['服务者无法接受您的改期申请，原时间保持不变。', 'Penyedia tidak dapat menerima permintaan tukar jadual anda. Masa asal anda kekal.'],
   'The customer kept the original time.': ['顾客保留了原时间。', 'Pelanggan mengekalkan masa asal.'],
   // backend & server-side booking rules
+  // Singapore-only launch copy (DR.CONFIG.markets = ['SG'])
+  'Trusted, verified services across Singapore': ['新加坡值得信赖的认证服务', 'Perkhidmatan dipercayai dan disahkan di seluruh Singapura'],
+  'These demo terms describe how Done Right connects customers with independent service providers in Singapore.': ['本演示条款说明 Done Right 如何连接新加坡的顾客与独立服务者。', 'Terma demo ini menerangkan cara Done Right menghubungkan pelanggan dengan penyedia perkhidmatan bebas di Singapura.'],
+  'Done Right · Book with confidence in Singapore': ['Done Right · 在新加坡放心预约', 'Done Right · Tempah dengan yakin di Singapura'],
+  'Done Right is an English-first marketplace for home, lifestyle and professional services in Singapore — from aircon servicing and home massage to tuition, swimming and singing lessons, and software, ML and AI experts.': ['Done Right 是面向新加坡、以英语为主的家居、生活及专业服务平台——从空调清洗、上门按摩，到补习、游泳和声乐课，以及软件、机器学习和 AI 专家。', 'Done Right ialah pasaran mengutamakan bahasa Inggeris untuk perkhidmatan rumah, gaya hidup dan profesional di Singapura — daripada servis aircond dan urutan di rumah hingga tuisyen, kelas renang dan nyanyian, serta pakar perisian, ML dan AI.'],
+  'Areas covered': ['覆盖地区', 'Kawasan diliputi'],
   'Staff only': ['仅限工作人员', 'Kakitangan sahaja'],
+  'Done Right is available in Singapore only': ['Done Right 目前仅在新加坡提供服务', 'Done Right hanya tersedia di Singapura'],
   'This provider is not taking requests for this service': ['该服务者暂不接受此服务的报价请求', 'Penyedia ini tidak menerima permintaan untuk perkhidmatan ini'],
   'Sending message': ['发送中', 'Menghantar mesej'], 'Message sent': ['已发送', 'Mesej dihantar'], 'Message read': ['已读', 'Mesej dibaca'],
   'Choose who to message': ['请选择要发消息的对象', 'Pilih siapa untuk dihantar mesej'], 'Write a message first': ['请先输入消息', 'Tulis mesej dahulu'],

@@ -112,7 +112,14 @@
     observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
   }
 
-  DR.LANGS = [['en', 'English'], ['zh', '中文（简体）'], ['ms', 'Bahasa Melayu']];
+  DR.LANGS_ALL = [['en', 'English'], ['zh', '中文（简体）'], ['ms', 'Bahasa Melayu']];
+  // languages offered in this launch (DR.CONFIG.languages); English is always available
+  Object.defineProperty(DR, 'LANGS', {
+    get() {
+      const on = (DR.CONFIG && DR.CONFIG.languages) || DR.LANGS_ALL.map(([c]) => c);
+      return DR.LANGS_ALL.filter(([c]) => c === 'en' || on.includes(c));
+    },
+  });
   DR.t = (s) => translate(s);
   DR.i18n = {
     translate, apply, start, missing, isTranslated,
@@ -120,7 +127,9 @@
       DR.store.update((s) => { s.lang = l; }, { render: false });
       DR.u.setLangNames(l);
       document.documentElement.lang = { zh: 'zh-Hans', ms: 'ms' }[l] || 'en';
-      location.reload();
+      // a ?lang= in the address would override the choice on reload
+      const url = new URL(location.href);
+      if (url.searchParams.has('lang')) { url.searchParams.delete('lang'); location.replace(url.pathname + url.search + url.hash); } else location.reload();
     },
     // coverage helper (tests & dev): untranslated UI strings in a DOM subtree (checked in the source language)
     untranslated(root, l = lang()) {

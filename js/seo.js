@@ -3,7 +3,9 @@
  * (/sg/<service>/, /my/<service>/<area>/ …) plus sitemap.xml for everything else. */
 (function (DR) {
   'use strict';
-  const DEFAULT_DESC = 'Book verified pros in Singapore & Malaysia — home cleaning, repairs, massage, tuition, swimming and singing lessons, software, ML and AI experts. ID-verified, licensed, protected payments.';
+  const DEFAULT_DESC_BOTH = 'Book verified pros in Singapore & Malaysia — home cleaning, repairs, massage, tuition, swimming and singing lessons, software, ML and AI experts. ID-verified, licensed, protected payments.';
+  const DEFAULT_DESC_SG = 'Book verified pros in Singapore — home cleaning, repairs, massage, tuition, swimming and singing lessons, software, ML and AI experts. ID-verified, licensed, protected payments.';
+  const defaultDesc = () => (DR.markets().length > 1 ? DEFAULT_DESC_BOTH : DEFAULT_DESC_SG);
   const CURRENCY = { SG: 'SGD', MY: 'MYR' };
   function meta(attr, key, value) {
     let el = document.head.querySelector(`meta[${attr}="${key}"]`);
@@ -21,12 +23,12 @@
     el.textContent = JSON.stringify(data);
   }
   const base = () => (DR.CONFIG.siteUrl || location.origin).replace(/\/$/, '');
-  const org = () => ({ '@type': 'Organization', name: 'Done Right', url: base(), logo: `${base()}/assets/icon.svg`, areaServed: ['SG', 'MY'] });
+  const org = () => ({ '@type': 'Organization', name: 'Done Right', url: base(), logo: `${base()}/assets/icon.svg`, areaServed: DR.markets() });
 
   DR.seo = {
     apply(seo = {}, title) {
       const t = `${title ? DR.t(title) + ' · ' : ''}Done Right`;
-      const desc = seo.desc || DEFAULT_DESC;
+      const desc = seo.desc || defaultDesc();
       meta('name', 'description', desc);
       meta('property', 'og:title', t);
       meta('property', 'og:description', desc);
