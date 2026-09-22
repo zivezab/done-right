@@ -8,6 +8,7 @@
   // Chainable stand-in for the supabase-js query builder: records every call, resolves via handler.
   function mockClient(handler, state = {}) {
     const calls = [];
+    let this_ = null;
     const builder = (table) => {
       const ops = [];
       const b = new Proxy({}, {
@@ -19,7 +20,7 @@
       calls.push({ table, ops });
       return b;
     };
-    return {
+    return this_ = {
       calls,
       rpcs: [],
       from: builder,
@@ -31,6 +32,18 @@
       },
       channel() { const c = { on: () => c, subscribe: () => c }; return c; },
       removeChannel() {},
+      uploads: [],
+      removed: [],
+      storage: {
+        from: (bucket) => ({
+          upload: async (path, blob, opts) => {
+            this_.uploads.push({ bucket, path, type: blob.type, opts });
+            return state.uploadExists ? { data: null, error: { statusCode: '409', message: 'The resource already exists' } } : { data: { path }, error: null };
+          },
+          remove: async (paths) => { this_.removed.push(...paths); return { data: [], error: null }; },
+          createSignedUrls: async (paths, secs) => ({ data: paths.map((p) => ({ path: p, signedUrl: `https://signed.example/${p}?ttl=${secs}` })), error: null }),
+        }),
+      },
     };
   }
 
@@ -69,6 +82,7 @@
         return ((state.lists || {})[table] || []).slice();
       }
       if (table === 'rpc:follower_counts') return state.counts || [];
+      if (table === 'rpc:log_document_view') return null;
       throw new Error('unexpected ' + table);
     };
   }
@@ -184,6 +198,63 @@
       expect(c.calls.some((x) => x.table === 'verification_items' && x.ops.some((o) => o[0] === 'insert'))).toBe(true);
       expect(DR.store.s.users[ME].verification.identity.status).toBe('pending');
       expect(!!DR.store.s.users[ME].provider).toBe(true);   // local edit kept for the retry
+    }));
+  });
+
+  describe('backend adapter: document files (Storage)', () => {
+    const JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==';
+    const inserted = (c) => c.calls.filter((x) => x.table === 'verification_items').flatMap((x) => x.ops.filter((o) => o[0] === 'insert').map((o) => o[1]));
+    it('uploads scans to the private bucket and lists them on the document', guard(async () => {
+      const c = await start();
+      const id = await DR.files.put(JPEG, { secure: true });
+      DR.store.s.users[ME].verification.identity = { docType: 'NRIC', fullName: 'Chris', files: { front: { id, name: 'front.jpg', image: true, secure: true }, back: null } };
+      expect((await DR.backend.push()).length).toBe(0);
+      const rid = DR.store.s.users[ME].verification.identity.rid;
+      expect(c.uploads.length).toBe(1);
+      expect(c.uploads[0].bucket).toBe('verification');
+      expect(c.uploads[0].path).toBe(`${ME}/${rid}/${id}.jpg`);
+      expect(c.uploads[0].opts.upsert).toBe(false);
+      const row = inserted(c)[0];
+      expect(row.data.docs[0].slot).toBe('front');
+      expect(row.data.docs[0].path).toBe(c.uploads[0].path);
+      expect('files' in row.data).toBe(false);
+    }));
+    it('never uploads the same file twice', guard(async () => {
+      const c = await start();
+      const id = await DR.files.put(JPEG, { secure: true });
+      DR.store.s.users[ME].verification.identity = { docType: 'NRIC', files: { front: { id, name: 'f.jpg', image: true } } };
+      await DR.backend.push();
+      DR.store.s.users[ME].verification.identity.fullName = 'Chris Lee';
+      await DR.backend.push();
+      expect(c.uploads.length).toBe(1);
+    }));
+    it('treats a file that is already in the bucket as uploaded', guard(async () => {
+      const c = await start({ uploadExists: true });
+      const id = await DR.files.put(JPEG, { secure: true });
+      DR.store.s.users[ME].verification.identity = { docType: 'NRIC', files: { front: { id, name: 'f.jpg', image: true } } };
+      expect((await DR.backend.push()).length).toBe(0);
+      expect(inserted(c)[0].data.docs.length).toBe(1);
+    }));
+    it('replacing a photo removes the old file; deleting a document removes its files', guard(async () => {
+      const c = await start();
+      const a = await DR.files.put(JPEG, { secure: true });
+      const b = await DR.files.put(JPEG, { secure: true });
+      const v = DR.store.s.users[ME].verification;
+      v.education = [{ school: 'NUS', file: { id: a, name: 'a.jpg', image: true } }];
+      await DR.backend.push();
+      const first = c.uploads[0].path;
+      v.education[0].file = { id: b, name: 'b.jpg', image: true };
+      await DR.backend.push();
+      expect(c.removed).toContain(first);
+      const second = c.uploads[1].path;
+      v.education = [];
+      await DR.backend.push();
+      expect(c.removed).toContain(second);
+    }));
+    it('gives reviewers short-lived links', guard(async () => {
+      await start();
+      const urls = await DR.backend.signedUrls(['u/d/f.jpg']);
+      expect(urls['u/d/f.jpg']).toMatch(/ttl=300$/);
     }));
   });
 

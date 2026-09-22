@@ -25,6 +25,10 @@
     if (rec.registerCheck) checks.push(['Public register', `${rec.registerCheck.source}: ${rec.registerCheck.status}`, rec.registerCheck.found]);
     return `${kv('Name', rec.fullName || rec.name)}${kv('Document', rec.docType ? `${rec.docType} ${rec.masked || ''}` : '')}${kv('Date of birth', rec.dob)}${kv('Issuer', rec.issuer)}${kv('Licence', rec.licenceId && DR.LICENCES[rec.licenceId] ? DR.LICENCES[rec.licenceId].name : '')}${kv('Number', rec.credentialId || rec.regNo)}${kv('School', rec.school)}${kv('Qualification', rec.degree)}${kv('Title', rec.title)}${kv('Company', rec.company)}${kv('Issued', rec.issued)}${kv('Expiry', rec.expiry)}
       ${checks.length ? `<div class="checks-grid">${checks.map(([k, v, ok]) => `<span class="${ok ? 'green' : 'brand'}">${icon(ok ? 'checkCircle' : 'alert', 14)} ${k}: <b data-no-i18n>${esc(v)}</b></span>`).join('')}</div>` : ''}
+      ${DR.backend.enabled && rec.rid && (rec.docs || []).length ? `<div class="admin-docs" data-rid="${esc(rec.rid)}">${rec.docs.map((d) => (d.image
+        ? `<img data-sfile="${esc(d.path)}" alt="${esc(d.slot)}">`
+        : `<a class="chip-xs" data-sfile="${esc(d.path)}" target="_blank" rel="noopener">${icon('doc', 12)} <span data-no-i18n>${esc(d.name || d.slot)}</span></a>`)).join('')}</div>` : ''}
+      ${DR.backend.enabled && rec.rid && !(rec.docs || []).length ? '<p class="xs muted mt8">No files uploaded yet</p>' : ''}
       ${docs(rec).length ? `<div class="admin-docs">${docs(rec).map((f) => (f.image ? `<img data-file="${f.id}" alt="">` : `<span class="chip-xs">${icon('doc', 12)} ${esc(f.name)}</span>`)).join('')}</div>` : ''}`;
   }
 
@@ -47,6 +51,7 @@
     return {
       title: 'Trust & Safety console', seo: { noindex: true },
       html: `${DR.ui.navbar({ title: 'Trust & Safety' })}
+        ${live ? `<p class="notice mx">${icon('shield', 16)}<span>Documents open through links that expire after 5 minutes. Every viewing is recorded in the audit log.</span></p>` : ''}
         ${live ? '' : `<p class="notice notice-gold mx">${icon('alert', 16)}<span>Demo reviewer console. In production this is an internal back office with SSO, role-based access and logged, time-limited document viewing.</span></p>`}
         ${live ? '' : `<div class="card flush">
           <label class="list-item"><span><b>Auto-approve after 20 s</b><br><small class="muted">Simulates reviewers for demos</small></span><span class="switch"><input type="checkbox" id="auto" ${S().demo.autoApprove !== false ? 'checked' : ''}><i></i></span></label>
@@ -59,6 +64,17 @@
         if (!live) {
           el.querySelector('#auto').onchange = (e) => DR.store.update((s) => { s.demo.autoApprove = e.target.checked; }, { render: false });
           el.querySelector('#sim').onchange = (e) => DR.store.update((s) => { s.demo.simulate = e.target.checked; }, { render: false });
+        }
+        // with a backend, scans come from the private bucket: record the viewing, then fetch short-lived links
+        if (live) {
+          el.querySelectorAll('.admin-docs[data-rid]').forEach(async (box) => {
+            try {
+              await DR.backend.logView(box.dataset.rid);
+              const els = [...box.querySelectorAll('[data-sfile]')];
+              const urls = await DR.backend.signedUrls(els.map((x) => x.dataset.sfile));
+              els.forEach((x) => { const u = urls[x.dataset.sfile]; if (!u) return; if (x.tagName === 'IMG') x.src = u; else x.href = u; });
+            } catch (err) { box.insertAdjacentHTML('beforeend', `<p class="xs brand">${esc(err.message)}</p>`); }
+          });
         }
         // with a backend, decisions are made by the review_item database function (staff only, audited)
         const decide = async (it, status, reason) => {

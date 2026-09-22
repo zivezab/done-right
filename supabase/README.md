@@ -16,6 +16,7 @@ This folder holds the database for Done Right: the schema, the booking rules, ro
 - **No double booking.** An exclusion constraint makes it impossible for the same provider to be booked twice, even with simultaneous requests.
 - **Rules are frozen at booking time.** Each order keeps a snapshot of the provider's booking rules, so later changes never apply retroactively.
 - **Only reviewers verify documents.** Users can submit and edit their documents, and any edit sends the document back to review. Only staff can approve or reject, through `review_item`, which writes an audit log entry. The same ID document can't be used on two accounts.
+- **Document scans are private.** They're stored in the private `verification` bucket, in a folder per user. Only the owner and reviewers can open them, reviewers get links that expire after 5 minutes, and every viewing is written to the audit log. Uploads are limited to JPEG, PNG, WebP or PDF, up to 5 MB each.
 - **Privacy.** Customers see a provider's public profile (name, age and verified credentials) but never their phone number, email, date of birth or identity documents. Everyone sees only their own orders. Other customers' bookings appear only as anonymous busy times.
 
 ## Set up a project
@@ -34,8 +35,9 @@ This folder holds the database for Done Right: the schema, the booking rules, ro
      supabase db push
      ```
    - or paste each file in `supabase/migrations/` into the SQL editor, oldest first.
-4. **Turn on sign-in** under *Authentication → Providers*:
-   - **Email.** Keep it enabled, and edit the *Magic Link* email template to show the 6-digit code with `{{ .Token }}`. The app asks for a code; it doesn't use links.
+4. **Turn on sign-in:**
+   - **URLs** (*Authentication → URL Configuration*): set the Site URL to your app's address (for development, `http://localhost:5173`) and add `http://localhost:5173/**` plus your live domain to *Redirect URLs*. Otherwise sign-in links go to Supabase's default address and fail.
+   - **Email** is on by default. The default email contains a sign-in link, which the app accepts, but only in the browser window where it was requested; users can copy and paste it there. Supabase's built-in email only reaches members of your Supabase organisation, and only a few emails an hour. For anyone else, connect your own email service under *Authentication → SMTP Settings* (for example Resend). That also lets you edit the email templates: add `{{ .Token }}` to show a 6-digit code, which works in any window.
    - **Phone.** Connect an SMS provider (Twilio, MessageBird or Vonage) to send codes to +65 and +60 numbers.
 5. **Connect the app.** In `js/config.js`, or in a `window.DR_CONFIG` defined before it loads, set:
    ```js
@@ -58,7 +60,7 @@ This folder holds the database for Done Right: the schema, the booking rules, ro
      ```sql
      update public.app_config set value = 'false' where key = 'demo_payments';
      ```
-- **Documents.** Uploaded files still stay encrypted on the user's device. Only document details (name, issuer, dates, licence number) reach the server, so reviewers can't see the scans yet. The next step is a private Storage bucket with per-user policies.
+- **Documents.** Scans are uploaded when a document is submitted, and a copy stays encrypted on the user's device. Supabase encrypts stored files at rest, but they aren't end-to-end encrypted: anyone with reviewer access can open them. Keep the staff list short. Scans added before this feature are uploaded automatically the next time the app saves on the device that holds them.
 - **Account deletion.** Deletion requests currently go to support. Self-service deletion needs an Edge Function using the service-role key, one that anonymises order records rather than deleting them, since those must be retained.
 - **Personal lists.** Follows, hidden providers and cart lines are private rows (`20260922000700_personal_lists.sql`) that users can only add or remove. Provider follower counts come from `follower_counts()`, which returns totals only, never who follows whom.
 - **Not yet on the server:** chat, quotes and reviews still live on each device.
@@ -81,4 +83,4 @@ The generated SQL is idempotent. Once a project is live, ship catalog changes as
 python3 tools/db_test.py
 ```
 
-This spins up a throwaway local Postgres (`brew install postgresql@16`), applies a small stand-in for Supabase's `auth` schema and roles, runs every migration, and then runs `tests/db/*.sql`: 102 checks covering access control, licensing, booking rules, double-booking, reschedule locks, cancellation terms, expiry and completion. Add `--keep` to leave the database running so you can poke at it.
+This spins up a throwaway local Postgres (`brew install postgresql@16`), applies a small stand-in for Supabase's `auth` schema and roles, runs every migration, and then runs `tests/db/*.sql`: 115 checks covering access control, document storage, licensing, booking rules, double-booking, reschedule locks, cancellation terms, expiry and completion. Add `--keep` to leave the database running so you can poke at it.
