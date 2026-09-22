@@ -122,7 +122,8 @@
           ${auth.method === 'phone' ? DR.ui.field('Mobile number', `<div class="row gap8"><select class="input w-auto" name="cc">${Object.values(DR.COUNTRIES).map((c) => `<option value="${c.code}" ${c.code === auth.cc ? 'selected' : ''}>${c.flag} ${c.dial}</option>`).join('')}</select><input class="input grow" name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="${C.phoneHint}" value="${esc(auth.phone)}" ${auth.sent ? 'readonly' : ''}></div>`)
           : DR.ui.field('Email address', `<input class="input" name="email" type="email" autocomplete="email" placeholder="you@example.com" value="${esc(auth.email)}" ${auth.sent ? 'readonly' : ''}>`)}
           ${auth.sent ? `${DR.ui.field('Verification code', `<input class="input otp" name="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="••••••">`, `Sent to ${esc(auth.method === 'phone' ? `${C.dial} ${auth.phone}` : auth.email)} · <button type="button" class="link" id="resend">${auth.until > Date.now() ? `Resend in <span id="rs">${Math.ceil((auth.until - Date.now()) / 1000)}</span>s` : 'Resend code'}</button> · <button type="button" class="link" id="change">Change</button>`)}
-            <div class="demo-box">${icon('sparkle', 14)} Demo mode: your code is <b>${auth.demo}</b></div>` : ''}
+            ${DR.backend.enabled && auth.method === 'email' ? `<p class="notice mt8">${icon('mail', 16)}<span>We emailed you a sign-in link. Open it in this browser window (copy and paste it into the address bar if your email app opens another window) — or enter the code if your email shows one.</span></p>` : ''}
+            ${auth.demo ? `<div class="demo-box">${icon('sparkle', 14)} Demo mode: your code is <b>${auth.demo}</b></div>` : ''}` : ''}
           <label class="check"><input type="checkbox" id="agree" ${auth.agree ? 'checked' : ''}><span class="small">I agree to the <a href="#/page/terms">Terms of Service</a> and <a href="#/page/privacy">Privacy Policy</a>, and consent to the processing of my personal data under the ${esc(C.privacyLaw)}.</span></label>
           <button class="btn btn-primary btn-block">${auth.sent ? 'Verify & continue' : 'Send verification code'}</button>
         </form>
@@ -147,13 +148,21 @@
         if (rs) { const t = setInterval(() => { const left = Math.ceil((auth.until - Date.now()) / 1000); if (left <= 0) { clearInterval(t); DR.router.refresh(); } else rs.textContent = left; }, 1000); DR.onLeave(() => clearInterval(t)); }
         const codeInput = f.querySelector('[name=code]');
         if (codeInput) codeInput.focus();
-        function sendCode() {
+        const keyOf = () => (auth.method === 'phone' ? { phone: `${DR.COUNTRIES[auth.cc].dial}${auth.phone}` } : { email: auth.email.toLowerCase() });
+        async function sendCode() {
+          if (DR.backend.enabled) {
+            try { await DR.backend.sendOtp(Object.assign(keyOf(), { country: auth.cc, next })); } catch (err) { return DR.ui.toast(err.message); }
+            auth.demo = '';
+            auth.sent = true; auth.until = Date.now() + 60000;
+            DR.ui.toast(auth.method === 'email' ? 'Check your email for the sign-in link' : 'Verification code sent');
+            return DR.router.refresh();
+          }
           auth.demo = String(Math.floor(100000 + Math.random() * 900000));
           auth.sent = true; auth.until = Date.now() + 30000;
           DR.ui.toast(`Verification code sent (demo code ${auth.demo})`);
           DR.router.refresh();
         }
-        f.addEventListener('submit', (e) => {
+        f.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (!auth.agree) return DR.ui.toast('Please accept the Terms and Privacy Policy');
           if (!auth.sent) {
@@ -161,8 +170,16 @@
             if (auth.method === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(auth.email)) return DR.ui.toast('Enter a valid email address');
             return sendCode();
           }
+          const key = keyOf();
+          if (DR.backend.enabled) {
+            let res;
+            try { res = await DR.backend.verifyOtp(key, codeInput.value.trim()); } catch (err) { return DR.ui.toast('Incorrect code — please try again'); }
+            if (!res.user) return DR.ui.toast('Could not sign in — please try again');
+            Object.assign(auth, { sent: false, code: '', demo: '', phone: '', email: '' });
+            DR.ui.toast(res.isNew ? 'Account created' : 'Welcome back!');
+            return DR.router.go(res.isNew ? `/welcome?next=${encodeURIComponent(next)}` : next, { replace: true });
+          }
           if (codeInput.value.trim() !== auth.demo) return DR.ui.toast('Incorrect code — please try again');
-          const key = auth.method === 'phone' ? { phone: `${DR.COUNTRIES[auth.cc].dial}${auth.phone}` } : { email: auth.email.toLowerCase() };
           let user = Object.values(S().users).find((x) => (key.phone && x.phone === key.phone) || (key.email && x.email === key.email));
           const isNew = !user;
           DR.store.update((s) => {
@@ -244,8 +261,17 @@
         on('rate', () => DR.ui.toast('Thanks! App store ratings open at launch.'));
         on('feedback', () => { const sh = DR.ui.sheet({ title: 'Feedback', html: '<textarea class="input" rows="5" placeholder="What can we do better?"></textarea><button class="btn btn-primary btn-block mt12" id="fs">Send</button>', mount(x) { x.querySelector('#fs').onclick = () => { sh.close(); DR.ui.toast('Thanks for your feedback!'); }; } }); });
         on('phone', () => DR.ui.toast('For security, changing your number requires OTP on both numbers — available at launch'));
-        on('logout', async () => { if (await DR.ui.confirm({ title: 'Log out?', ok: 'Log out' })) { DR.store.setSession(null); DR.router.go('/me', { replace: true }); } });
+        on('logout', async () => {
+          if (!(await DR.ui.confirm({ title: 'Log out?', ok: 'Log out' }))) return;
+          if (DR.backend.enabled) await DR.backend.signOut(); else DR.store.setSession(null);
+          DR.router.go('/me', { replace: true });
+        });
         on('delete', async () => {
+          if (DR.backend.enabled) {
+            // Server-side deletion needs the service role (Edge Function); until then support handles it.
+            DR.ui.toast('Deletion requests are handled by support within 30 days');
+            return DR.router.go('/chat/support');
+          }
           if (await DR.ui.confirm({ title: 'Delete your account?', text: 'Your profile, provider listing, verification documents and history on this device will be permanently removed. This cannot be undone.', ok: 'Delete account', danger: true })) {
             const id = DR.store.sessionId();
             DR.files.collect(DR.store.s.users[id]).forEach((f) => DR.files.del(f));

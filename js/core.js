@@ -140,6 +140,7 @@ window.DR = window.DR || {};
       rev++;
       try { localStorage.setItem(KEY, JSON.stringify(state)); }
       catch (e) { DR.ui.toast('Device storage is full — some changes were not saved'); }
+      DR.emit('saved');
     },
     update(fn, opts = {}) { fn(state); this.save(); if (opts.render !== false) DR.router.refresh(); },
     reset() { state = defaults(); try { sessionStorage.removeItem(SKEY); } catch (e) { /* ignore */ } this.save(); },
@@ -326,6 +327,13 @@ window.DR = window.DR || {};
     if (DR.store.user()) return true;
     DR.router.go('/auth?next=' + encodeURIComponent(parse().full), { replace: true });
     return null;
+  };
+  // For actions (follow, save, hide, report…): guests are sent to sign in and come back to this page.
+  DR.signInFirst = (msg = 'Please sign in first') => {
+    if (DR.store.user()) return true;
+    DR.ui.toast(msg);
+    DR.router.go('/auth?next=' + encodeURIComponent(parse().full));
+    return false;
   };
 
   // ---------------------------------------------------------------- icons (24px line set)

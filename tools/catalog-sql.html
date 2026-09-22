@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Catalog SQL</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  pre { white-space: pre-wrap; background: #f4f4f5; padding: 12px; border-radius: 8px; max-height: 70vh; overflow: auto; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>Catalog migration</h1>
+<p>Save this as <code>supabase/migrations/20260922000200_catalog.sql</code>.</p>
+<p><button id="dl">Download .sql</button></p>
+<pre id="out">Loading…</pre>
+<script>window.DR = {};</script>
+<script src="../js/data/categories.js"></script>
+<script src="../js/data/locations.js"></script>
+<script src="../js/data/licensing.js"></script>
+<script src="catalog-sql.js"></script>
+<script>
+  const sql = DR.catalogSQL();
+  document.getElementById('out').textContent = sql;
+  document.getElementById('dl').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([sql], { type: 'application/sql' }));
+    a.download = '20260922000200_catalog.sql';
+    a.click();
+  };
+</script>
+</body>
+</html>

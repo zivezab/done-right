@@ -15,3 +15,11 @@ Thumbs.db
 # Dependencies / builds
 node_modules/
 dist/
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
+
+# Local secrets (Supabase keys etc.)
+secret-do-not-commit
+js/config.local.js

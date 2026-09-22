@@ -193,7 +193,7 @@
         gal.addEventListener('scroll', DR.u.debounce(() => { counter.textContent = `${Math.round(gal.scrollLeft / gal.clientWidth) + 1}/${photos.length}`; }, 50));
         const bio = el.querySelector('#bio'); if (bio) bio.onclick = () => bio.classList.toggle('clamp2');
         const toggleFollow = () => {
-          if (own) return;
+          if (own || !DR.signInFirst('Sign in to follow providers')) return;
           DR.store.update((s) => { s.follows.providers = followed ? s.follows.providers.filter((x) => x !== p.id) : [p.id, ...s.follows.providers]; });
           DR.ui.toast(followed ? 'Unfollowed' : `Following ${p.name} — we'll tell you when they're nearby`);
         };
@@ -224,6 +224,7 @@
                 const b = e.target.closest('[data-a]'); if (!b) return;
                 const a = b.dataset.a;
                 sh.close();
+                if (['shop', 'hide', 'report'].includes(a) && !DR.signInFirst({ shop: 'Sign in to follow shops', hide: 'Sign in to hide providers', report: 'Sign in to report a provider' }[a])) return;
                 if (a === 'chat') DR.router.go('/chat/' + p.id);
                 if (a === 'quote') DR.router.go('/quote/new?pid=' + p.id);
                 if (a === 'call') DR.call.start(p.id);

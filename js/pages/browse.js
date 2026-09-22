@@ -132,7 +132,7 @@
           ${quoteBased ? `<a class="btn btn-primary grow" href="#/quote/new?sub=${sub.id}">Request quotes</a>` : `<button class="btn btn-primary grow" id="bookNow" ${pros.length ? '' : 'disabled'}>Book best match</button>`}
         </div>`,
       mount(el) {
-        el.querySelector('#fav').onclick = () => DR.store.update((s) => { s.follows.services = followed ? s.follows.services.filter((x) => x !== sub.id) : [sub.id, ...s.follows.services]; });
+        el.querySelector('#fav').onclick = () => DR.signInFirst('Sign in to save services') && DR.store.update((s) => { s.follows.services = followed ? s.follows.services.filter((x) => x !== sub.id) : [sub.id, ...s.follows.services]; });
         el.querySelector('#cart').onclick = () => {
           if (inCart) return DR.router.go('/cart');
           DR.store.update((s) => { s.cart.unshift({ id: DR.u.uid('c'), subId: sub.id, providerId: null, addedAt: Date.now() }); });
