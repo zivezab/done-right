@@ -34,10 +34,19 @@ describe('request a quote', () => {
     q.offers.forEach((o) => expect(o.price).toBeLessThan(61));
   });
   it('accepting an offer books at the quoted price and declines the rest', () => {
+    // explicit offers: seed pros decline at random (seeded by the random quote id), so simulate() alone may yield none
+    H.provider('p1', { subs: ['daily-cleaning'] });
+    H.provider('p2', { subs: ['daily-cleaning'] });
     const c = H.user('c1');
     const q = DR.quotes.create({ user: c, subId: 'daily-cleaning', details: DETAILS, address: c.addresses[0] });
+    expect(q.invited).toContain('p1');
+    expect(q.invited).toContain('p2');
+    DR.quotes.offer(q.id, 'p1', { price: 120, date: H.day(2), time: '10:00', duration: 120 });
+    DR.quotes.offer(q.id, 'p2', { price: 140, date: H.day(3), time: '11:00', duration: 120 });
     DR.quotes.simulate(q.createdAt + 60000);
     const [first, ...rest] = q.offers;
+    expect(first.providerId).toBe('p1');
+    expect(rest.length).toBeGreaterThan(0);
     const order = DR.quotes.accept(q.id, first.id, c);
     expect(order.price).toBe(first.price);
     expect(order.fee).toBe(0);
@@ -57,11 +66,14 @@ describe('request a quote', () => {
     expect(() => DR.quotes.offer(q.id, 'p1', { price: 120, date: H.day(2), time: '23:00' })).toThrow(/free time/);
   });
   it('refuses expired offers', () => {
+    // explicit invite + offer: seed pros decline at random, so simulate() may produce no offer at all
+    H.provider('p1', { subs: ['daily-cleaning'] });
     const c = H.user('c1');
-    const q = DR.quotes.create({ user: c, subId: 'daily-cleaning', details: DETAILS });
-    DR.quotes.simulate(q.createdAt + 60000);
-    const o = q.offers[0];
+    const q = DR.quotes.create({ user: c, subId: 'daily-cleaning', details: DETAILS, providerId: 'p1' });
+    const o = DR.quotes.offer(q.id, 'p1', { price: 120, date: H.day(2), time: '10:00', duration: 120 });
     o.validUntil = Date.now() - 1;
     expect(() => DR.quotes.accept(q.id, o.id, c)).toThrow(/expired/);
+    expect(o.status).toBe('expired');
+    expect(q.status).toBe('open');
   });
 });
