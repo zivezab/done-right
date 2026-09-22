@@ -169,15 +169,17 @@
           if (t('#addAddr')) return DR.addressSheet(null, (a) => { d.addr = a.id; DR.router.refresh(); });
         });
         el.querySelector('#notes').addEventListener('input', (e) => { d.notes = e.target.value; });
-        el.querySelector('#place').addEventListener('click', () => {
-          if (!ready) return;
+        el.querySelector('#place').addEventListener('click', async (e) => {
+          if (!ready || e.currentTarget.disabled) return;
+          const btn = e.currentTarget;
+          btn.disabled = true;
           try {
             const addr = addrs.find((a) => a.id === d.addr);
-            const order = DR.booking.create({ user: u, provider: p, service: svc, date: d.date, time: d.time, mode: d.mode, address: addr ? Object.assign({}, addr) : null, notes: d.notes });
+            const order = await DR.booking.create({ user: u, provider: p, service: svc, date: d.date, time: d.time, mode: d.mode, address: addr ? Object.assign({}, addr) : null, notes: d.notes });
             DR.store.update((s) => { s.cart = s.cart.filter((c) => !(c.subId === svc.subId && (!c.providerId || c.providerId === p.id))); }, { render: false });
             delete drafts[p.id];
             DR.router.go('/pay/' + order.id, { replace: true });
-          } catch (err) { DR.ui.toast(err.message); DR.router.refresh(); }
+          } catch (err) { btn.disabled = false; DR.ui.toast(err.message); DR.router.refresh(); }
         });
       },
     };
@@ -192,10 +194,11 @@
     if (o.status !== 'to_pay') { DR.router.go('/order/' + o.id, { replace: true }); return null; }
     const C = DR.COUNTRIES[o.country];
     if (!payMethod || !C.payments.some((m) => m[0] === payMethod)) payMethod = C.payments[0][0];
-    if (DR.booking.expire()) { DR.router.go('/order/' + o.id, { replace: true }); return null; }
+    // local demo expires orders here; with a backend the database does it (and pay_order enforces the window)
+    if (!DR.backend.enabled && DR.booking.expire()) { DR.router.go('/order/' + o.id, { replace: true }); return null; }
     const sub = DR.SUB[o.subId];
     const p = DR.data.provider(o.providerId);
-    const instant = o.quoteId || DR.policy(p).mode === 'instant';
+    const instant = o.quoteId || (o.policy || DR.policy(p)).mode === 'instant';
     return {
       title: 'Payment', bar: true, seo: { noindex: true },
       html: `${DR.ui.navbar({ title: 'Payment' })}
@@ -216,9 +219,9 @@
         el.addEventListener('click', (e) => { const b = e.target.closest('[data-pm]'); if (b) { payMethod = b.dataset.pm; el.querySelectorAll('[data-pm]').forEach((x) => x.classList.toggle('on', x === b)); } });
         el.querySelector('#pay').onclick = () => {
           const sh = DR.ui.sheet({ cls: 'sheet-dialog', html: `<div class="dialog center"><div class="spinner"></div><h3 class="mt12">Processing payment…</h3><p class="muted small">Please don't close this page</p></div>` });
-          setTimeout(() => {
+          setTimeout(async () => {
             try {
-              const done = DR.booking.pay(o.id, C.payments.find((m) => m[0] === payMethod)[1]);
+              const done = await DR.booking.pay(o.id, C.payments.find((m) => m[0] === payMethod)[1]);
               sh.close();
               DR.ui.toast(done.status === 'requested' ? 'Payment held — request sent to provider' : 'Payment successful — booking confirmed');
               DR.router.go('/order/' + o.id, { replace: true });
@@ -242,7 +245,7 @@
     const opts = { excludeOrder: o.id };
     const days = DR.picker.days(p, o.duration, null, opts);
     if (!d.date || !days.some((x) => x.k === d.date)) d.date = (days.find((c) => c.n > 0) || days[0]).k;
-    const pol = DR.policy(p);
+    const pol = Object.assign(DR.defaultPolicy(), o.policy || DR.policy(p));  // rules this booking was made under
     return {
       title: 'Reschedule', bar: true, seo: { noindex: true },
       html: `${DR.ui.navbar({ title: 'Reschedule' })}
@@ -259,9 +262,10 @@
           const tm = e.target.closest('[data-time]'); if (tm) { d.time = tm.dataset.time; DR.router.refresh(); }
         });
         const go = el.querySelector('#go');
-        if (go) go.onclick = () => {
+        if (go) go.onclick = async () => {
+          go.disabled = true;
           try {
-            const r = DR.booking.reschedule(o.id, d.date, d.time);
+            const r = await DR.booking.reschedule(o.id, d.date, d.time);
             delete rs[o.id];
             DR.ui.toast(r.pending ? 'Reschedule request sent to provider' : 'Booking moved');
             DR.router.go('/order/' + o.id, { replace: true });
@@ -282,11 +286,11 @@
     const sh = DR.ui.sheet({
       title: 'Propose a new time', full: true, html: `<p class="muted small mb12">The customer must accept before the booking moves.</p><div id="pb">${body()}</div>`,
       mount(s) {
-        s.addEventListener('click', (e) => {
+        s.addEventListener('click', async (e) => {
           const dt = e.target.closest('[data-date]'); if (dt) { st.date = dt.dataset.date; st.time = null; s.querySelector('#pb').innerHTML = body(); }
           const tm = e.target.closest('[data-time]'); if (tm) { st.time = tm.dataset.time; const note = (s.querySelector('#pnote') || {}).value || ''; s.querySelector('#pb').innerHTML = body(); s.querySelector('#pnote').value = note; }
           if (e.target.closest('#psend')) {
-            try { DR.booking.propose(o.id, st.date, st.time, s.querySelector('#pnote').value); sh.close(); DR.ui.toast('Proposal sent to customer'); DR.router.refresh(); } catch (err) { DR.ui.toast(err.message); }
+            try { await DR.booking.propose(o.id, st.date, st.time, s.querySelector('#pnote').value); sh.close(); DR.ui.toast('Proposal sent to customer'); DR.router.refresh(); } catch (err) { DR.ui.toast(err.message); }
           }
         });
       },
@@ -308,25 +312,25 @@
       if (act === 'cancel') {
         const t = B.cancelTerms(o);
         const text = o.status === 'to_pay' ? 'Your time slot will be released.' : t.free ? `You will receive a full refund of ${money(t.refund, o.country)} within 3–5 working days.` : `Less than ${hoursLabel(t.hours)} to your appointment — a 50% fee (${money(t.fee, o.country)}) applies. ${money(t.refund, o.country)} will be refunded.`;
-        if (await DR.ui.confirm({ title: o.status === 'requested' ? 'Cancel this request?' : 'Cancel this order?', text, ok: 'Cancel order', cancel: 'Keep order', danger: true })) done((B.cancel(o.id, 'customer'), 'Order cancelled'));
+        if (await DR.ui.confirm({ title: o.status === 'requested' ? 'Cancel this request?' : 'Cancel this order?', text, ok: 'Cancel order', cancel: 'Keep order', danger: true })) done((await B.cancel(o.id, 'customer'), 'Order cancelled'));
       }
-      if (act === 'simulate') done((B.markDone(o.id), `${o.providerName} marked the job as done`));
+      if (act === 'simulate') done((await B.markDone(o.id), `${o.providerName} marked the job as done`));
       if (act === 'confirm') {
-        if (await DR.ui.confirm({ title: 'Confirm job completed?', text: `Payment of ${money(o.total, o.country)} will be released to ${esc(o.providerName)}.`, ok: 'Confirm' })) { B.confirmDone(o.id); DR.router.refresh(); DR.reviewSheet(S().orders.find((x) => x.id === o.id)); }
+        if (await DR.ui.confirm({ title: 'Confirm job completed?', text: `Payment of ${money(o.total, o.country)} will be released to ${esc(o.providerName)}.`, ok: 'Confirm' })) { await B.confirmDone(o.id); DR.router.refresh(); DR.reviewSheet(S().orders.find((x) => x.id === o.id)); }
       }
       if (act === 'issue') {
         const sh = DR.ui.sheet({ title: 'Report an issue', html: `<div class="list">${['Provider did not show up', 'Service not completed', 'Quality not as expected', 'Charged extra outside the app', 'Safety concern'].map((r) => `<label class="list-item"><span>${r}</span><input type="radio" name="i"></label>`).join('')}</div><textarea class="input mt12" rows="3" placeholder="Describe what happened"></textarea><button class="btn btn-danger btn-block mt12" id="go">Submit to Done Right Guarantee</button>`, mount(s) { s.querySelector('#go').onclick = () => { sh.close(); DR.ui.toast('Case opened — our team will contact you within 2 hours'); }; } });
       }
-      if (act === 'proposal-yes') done((B.respondProposal(o.id, true), 'New time accepted'));
-      if (act === 'proposal-no') done((B.respondProposal(o.id, false), 'Kept the original time'));
-      if (act === 'pro-accept') done((B.accept(o.id), 'Booking accepted'));
+      if (act === 'proposal-yes') done((await B.respondProposal(o.id, true), 'New time accepted'));
+      if (act === 'proposal-no') done((await B.respondProposal(o.id, false), 'Kept the original time'));
+      if (act === 'pro-accept') done((await B.accept(o.id), 'Booking accepted'));
       if (act === 'pro-decline') {
-        if (await DR.ui.confirm({ title: o.status === 'requested' ? 'Decline this request?' : 'Cancel this booking?', text: 'The customer will be fully refunded. Frequent declines lower your ranking.', ok: 'Decline', danger: true })) done((B.decline(o.id), 'Booking declined'));
+        if (await DR.ui.confirm({ title: o.status === 'requested' ? 'Decline this request?' : 'Cancel this booking?', text: 'The customer will be fully refunded. Frequent declines lower your ranking.', ok: 'Decline', danger: true })) done((await B.decline(o.id), 'Booking declined'));
       }
-      if (act === 'pro-done') done((B.markDone(o.id), 'Marked as completed — waiting for customer confirmation'));
+      if (act === 'pro-done') done((await B.markDone(o.id), 'Marked as completed — waiting for customer confirmation'));
       if (act === 'pro-propose') DR.proposeSheet(o);
-      if (act === 'pro-resched-yes') done((B.respondReschedule(o.id, true), 'Reschedule approved'));
-      if (act === 'pro-resched-no') done((B.respondReschedule(o.id, false), 'Reschedule declined'));
+      if (act === 'pro-resched-yes') done((await B.respondReschedule(o.id, true), 'Reschedule approved'));
+      if (act === 'pro-resched-no') done((await B.respondReschedule(o.id, false), 'Reschedule declined'));
     } catch (err) { DR.ui.toast(err.message); DR.router.refresh(); }
   };
 
@@ -461,7 +465,7 @@
     const peer = asProvider ? o.userId : o.providerId;
     const call = DR.canCall(u.id, peer);
     const chk = !asProvider && DR.booking.canReschedule(o);
-    const pol = DR.policy(p);
+    const pol = Object.assign(DR.defaultPolicy(), o.policy || DR.policy(p));  // rules this booking was made under
     const deadline = o.status === 'requested' && o.requestExpiresAt ? `<p class="xs mt4">${icon('clock', 12)} ${asProvider ? 'Respond by' : 'Provider responds by'} ${fmtTs(o.requestExpiresAt)}</p>` : '';
     return {
       title: 'Order details', bar: true, seo: { noindex: true },
@@ -488,7 +492,7 @@
           ${o.payMethod ? `<div class="kv"><span>Method</span><span>${esc(o.payMethod)}</span></div>` : ''}
         </section>
         <section class="card small"><div class="kv"><span class="muted">Order no.</span><button class="link" id="copy">${o.no} ${icon('doc', 13)}</button></div><div class="kv"><span class="muted">Created</span><span>${fmtTs(o.createdAt)}</span></div>${o.paidAt ? `<div class="kv"><span class="muted">Paid</span><span>${fmtTs(o.paidAt)}</span></div>` : ''}</section>
-        ${o.status === 'upcoming' && !asProvider && !DR.chat.isReal(o.providerId) ? `<div class="demo-box mx"><b>${icon('sparkle', 14)} Demo</b><p class="small muted">Skip ahead and simulate the provider finishing the job.</p><button class="btn btn-ghost btn-sm mt8" data-act="simulate" data-oid="${o.id}">Simulate job completed</button></div>` : ''}
+        ${o.status === 'upcoming' && !asProvider && !DR.backend.enabled && !DR.chat.isReal(o.providerId) ? `<div class="demo-box mx"><b>${icon('sparkle', 14)} Demo</b><p class="small muted">Skip ahead and simulate the provider finishing the job.</p><button class="btn btn-ghost btn-sm mt8" data-act="simulate" data-oid="${o.id}">Simulate job completed</button></div>` : ''}
         <div class="bottom-bar end">${orderButtons(o, asProvider) || '<span class="muted small">No actions available</span>'}</div>`,
       mount(el) {
         DR.bindOrderActions(el);

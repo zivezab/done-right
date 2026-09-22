@@ -166,5 +166,6 @@ DR.I18N_PATTERNS = [
   [/^💬 Quote: (.+) for “(.+)” on (\S+) (\S+)\.$/, '💬 报价：“$2” $1，时间 $3 $4。', '💬 Sebut harga: $1 untuk “$2” pada $3 $4.'],
   [/^💬 New quote for “(.+)”\.$/, '💬 “$1”收到新报价。', '💬 Sebut harga baharu untuk “$1”.'],
   [/^📞 Voice call · (\d+:\d{2})$/, '📞 语音通话 · $1', '📞 Panggilan suara · $1'],
+  [/^Not saved to the server — (.+)$/, '未保存到服务器——$1', 'Tidak disimpan ke pelayan — $1'],
 ];
 })();

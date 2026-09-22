@@ -21,9 +21,29 @@ The app is fully client-side. State lives in `localStorage` and uploaded documen
 
 ## Tests
 
-Open http://localhost:5173/tests/index.html. The suite has 93 tests covering availability, booking and rescheduling, quotes, licensing, verification, chat, search, SEO, i18n and performance budgets. It runs in the browser against isolated storage (`doneright.test.v1`), so your demo data is untouched. Results are also exposed as `window.__TESTS__` for automation.
+Open http://localhost:5173/tests/index.html. The suite has 103 tests covering availability, booking and rescheduling, quotes, licensing, verification, chat, search, SEO, i18n, the Supabase adapter (against a mock client) and performance budgets. It runs in the browser against isolated storage (`doneright.test.v1`), so your demo data is untouched. Results are also exposed as `window.__TESTS__` for automation.
 
 The i18n specs crawl about 42 routes in both 中文 and Bahasa Melayu, and fail on any untranslated UI string. Missing strings are listed in `window.__MISSING_ZH__` and `window.__MISSING_MS__`.
+
+The database has its own suite of 69 checks, run against a throwaway local Postgres (`brew install postgresql@16`):
+
+```bash
+python3 tools/db_test.py
+```
+
+## Backend (Supabase)
+
+The app works in two modes:
+
+- **Local demo (default).** Everything lives in the browser, with ~500 generated providers and simulated counterparts.
+- **Supabase.** Set `supabase.url` and `supabase.anonKey` in `js/config.js`. Then:
+  - Sign-in uses real SMS or email codes.
+  - Only real providers are listed.
+  - Your profile, provider listing and document details are saved to the server.
+  - Every booking action (book, pay, accept, decline, reschedule, propose, cancel, complete) runs as a database function that re-checks the rules.
+  - Orders and review decisions update live across devices.
+
+`supabase/README.md` explains how to set up a project, and what is still device-only (document files, chat, quotes, reviews).
 
 ## Features
 
@@ -69,6 +89,7 @@ The i18n specs crawl about 42 routes in both 中文 and Bahasa Melayu, and fail 
 | `siteUrl` | Canonical origin for SEO tags |
 | `relay` | Masked-number prefixes per market |
 | `demo` | Simulation timings (provider replies, quote offers, auto-review) |
+| `supabase` | `url` and public `anonKey` of your Supabase project; empty means local demo mode. `showSeeds` also lists demo providers |
 
 ## Demo notes
 
@@ -95,18 +116,22 @@ js/data/                # categories, locations, licensing rules, providers + av
 js/booking.js           # booking lifecycle, reschedule, quotes
 js/rt.js                # realtime transport, chat, masked numbers, calls
 js/seo.js               # meta tags + JSON-LD
-js/demo.js              # counterpart simulation
+js/demo.js              # counterpart simulation (local demo mode only)
+js/backend.js           # Supabase adapter: hydrate, push, booking RPCs, realtime
 js/pages/*.js           # home, browse, provider, orders, quotes, account, verify, admin, pro
-tests/                  # in-browser test suite
+supabase/migrations/    # schema, catalog, booking functions, RLS, cron
+tests/                  # in-browser test suite; tests/db/ for the database
+tools/db_test.py        # runs the database tests on a throwaway Postgres
+tools/gen_catalog_sql.js # regenerates the catalog migration from js/data
 tools/serve.py          # no-cache dev server
 tools/build_seo.py      # static landing pages + sitemap
 ```
 
 ## Towards production
 
-- **Backend.** An API and database for users, providers, orders, availability, quotes, reviews and chat. The demo's rules (`DR.booking`, `DR.avail`, `DR.lic`) move server-side and are enforced there.
+- **Backend.** Done for accounts, provider listings, document details and bookings (see *Backend (Supabase)*). Still to move to the server: document files (Storage), chat, quotes and reviews.
 - **Realtime and calls.** Replace the BroadcastChannel transport with WebSockets, and use a CPaaS (Twilio, Vonage, 8x8) for number masking and PSTN calls.
 - **Auth.** An SMS/email OTP provider, plus Singpass MyInfo (SG) and MyDigital ID (MY).
-- **Payments and payouts.** A PayNow / DuitNow / FPX-capable PSP with escrow-style capture and weekly payouts.
+- **Payments and payouts.** A PayNow / DuitNow / FPX-capable PSP with escrow-style capture and weekly payouts. The database is ready for it: a webhook calls `confirm_payment`, and demo payments are switched off in `app_config`.
 - **Documents.** Object storage with KMS-managed envelope encryption, a reviewer back office with SSO and role-based access, logged and time-limited document access, and retention rules under PDPA SG / MY.
 - **Verification vendors.** Liveness and face match from a KYC provider, plus direct public-register lookups where APIs exist.

@@ -149,7 +149,7 @@
         <section class="card"><div class="card-h"><h2>Upcoming jobs</h2><a class="more" href="#/pro/schedule">Schedule ${icon('right', 13)}</a></div>
           ${upcoming.slice(0, 3).map((o) => `<div class="flush-card">${DR.orderCard(o, true)}</div>`).join('') || '<p class="muted small">No upcoming jobs yet.</p>'}
         </section>
-        ${pv.status === 'live' ? `<div class="demo-box mx mb16"><b>${icon('sparkle', 14)} Demo</b><p class="small muted">See how bookings arrive: create a paid booking from a sample customer in your next open slot (respects your booking rules).</p><button class="btn btn-ghost btn-sm mt8" id="simulate">Simulate incoming booking</button></div>` : ''}`,
+        ${pv.status === 'live' && !DR.backend.enabled ? `<div class="demo-box mx mb16"><b>${icon('sparkle', 14)} Demo</b><p class="small muted">See how bookings arrive: create a paid booking from a sample customer in your next open slot (respects your booking rules).</p><button class="btn btn-ghost btn-sm mt8" id="simulate">Simulate incoming booking</button></div>` : ''}`,
       mount(el) {
         DR.bindOrderActions(el);
         const acc = el.querySelector('#accepting');
@@ -194,6 +194,8 @@
       mount(s) {
         s.querySelector('#ok').onclick = () => {
           if (!s.querySelector('#sign').checked) return DR.ui.toast('Please tick to sign the commitment');
+          const idv = u.verification && u.verification.identity;
+          if (DR.backend.enabled && !(idv && idv.status === 'verified')) { sh.close(); return DR.ui.toast('Identity verification is required before going live'); }
           saveProvider(u, (pv) => { pv.status = 'live'; pv.liveAt = Date.now(); pv.signedAt = Date.now(); pv.paused = false; });
           DR.store.audit({ actor: u.id, userId: u.id, item: 'Service commitment', action: 'signed' });
           sh.close();

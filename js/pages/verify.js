@@ -80,6 +80,7 @@
     },
     // expiry + demo auto-review for every user; returns true when something changed
     tickAll(now = Date.now()) {
+      if (DR.backend.enabled) return false;   // the server lapses documents and staff review them
       let changed = false;
       const auto = S().demo.autoApprove !== false;
       const wait = (DR.CONFIG.demo && DR.CONFIG.demo.reviewMs) || 20000;

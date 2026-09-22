@@ -14,6 +14,9 @@
     siteUrl: 'https://doneright.example',
     // Masked-number relay prefixes (production: provisioned numbers from a CPaaS such as Twilio / Vonage / 8x8)
     relay: { SG: '+65 3159', MY: '+60 3-2785' },
+    // Supabase backend (see supabase/ and README "Backend"). Leave url empty for local demo mode.
+    // anonKey is the public "anon" key; never put the service-role key in client code.
+    supabase: { url: '', anonKey: '', showSeeds: false },
     // Demo simulation timings (ms)
     demo: { providerReplyMs: 8000, quoteOfferMs: 6000, reviewMs: 20000 },
   }, window.DR_CONFIG || {});

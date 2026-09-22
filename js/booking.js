@@ -8,6 +8,8 @@
   const find = (id) => S().orders.find((o) => o.id === id);
   const save = () => DR.store.save();
   const log = (o, s, extra) => { o.log = o.log || []; o.log.push(Object.assign({ s, ts: Date.now() }, extra || {})); };
+  // Rules in force when the order was made; later policy changes never apply retroactively (same as the database).
+  const rulesOf = (o) => Object.assign(DR.defaultPolicy(), o.policy || DR.policy(DR.data.provider(o.providerId)));
 
   // ------------------------------------------------------------ bookings
   DR.booking = {
@@ -21,7 +23,7 @@
         id: uid('o'), no: 'DR' + String(Date.now()).slice(-10), userId: user.id, customerName: user.name, providerId: provider.id, providerName: provider.name,
         subId: service.subId, serviceName: service.name, unit: service.unit, date, time, duration: service.duration, mode,
         address: mode === 'online' ? null : address, notes: (notes || '').trim(), price: p, fee: f, total: p + f, country: provider.country,
-        status: 'to_pay', createdAt: Date.now(), reschedules: 0, quoteId, offerId, log: [{ s: 'created', ts: Date.now() }],
+        status: 'to_pay', createdAt: Date.now(), reschedules: 0, quoteId, offerId, policy: DR.policy(provider), log: [{ s: 'created', ts: Date.now() }],
       };
       S().orders.unshift(order);
       save();
@@ -31,8 +33,7 @@
     pay(id, method) {
       const o = find(id);
       if (!o || o.status !== 'to_pay') throw new Error('Order is not awaiting payment');
-      const p = DR.data.provider(o.providerId);
-      const pol = DR.policy(p);
+      const pol = rulesOf(o);
       o.paidAt = Date.now(); o.payMethod = method; log(o, 'paid');
       if (o.quoteId || pol.mode === 'instant') {
         o.status = 'upcoming'; log(o, 'confirmed');
@@ -62,7 +63,7 @@
     },
     cancelTerms(o, now = Date.now()) {
       if (['to_pay', 'requested'].includes(o.status)) return { free: true, fee: 0, refund: o.paidAt ? o.total : 0 };
-      const pol = DR.policy(DR.data.provider(o.providerId));
+      const pol = rulesOf(o);
       const hrs = (slotTs(o.date, o.time) - now) / 3600000;
       if (hrs >= pol.freeCancelHours) return { free: true, fee: 0, refund: o.total, hours: pol.freeCancelHours };
       const fee = Math.round(o.total / 2);
@@ -78,7 +79,7 @@
     // ---- reschedule (customer) with provider-defined locking period
     canReschedule(o, now = Date.now()) {
       if (!o || !['upcoming', 'requested'].includes(o.status)) return { ok: false, reason: 'Only upcoming bookings can be rescheduled' };
-      const pol = DR.policy(DR.data.provider(o.providerId));
+      const pol = rulesOf(o);
       const used = o.reschedules || 0;
       const hrsLeft = (slotTs(o.date, o.time) - now) / 3600000;
       const base = { lockHours: pol.rescheduleLockHours, max: pol.maxReschedules, used, hrsLeft };
@@ -94,7 +95,7 @@
       const p = DR.data.provider(o.providerId);
       const slot = DR.avail.slots(p, date, o.duration, { excludeOrder: o.id, now }).find((x) => x.time === time);
       if (!slot || !slot.ok) throw new Error('That time slot is not available');
-      if (DR.policy(p).mode === 'request' && o.status === 'upcoming') {
+      if (rulesOf(o).mode === 'request' && o.status === 'upcoming') {
         o.rescheduleRequest = { date, time, ts: Date.now() };
         log(o, 'reschedule_requested', { to: `${date} ${time}` });
         DR.chat.notify(o.userId, o.providerId, `🔁 Reschedule request: move ${o.date} ${o.time} → ${date} ${time}.`);

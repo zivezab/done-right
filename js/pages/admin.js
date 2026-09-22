@@ -29,6 +29,10 @@
   }
 
   DR.page('/admin', ({ query }) => {
+    const live = DR.backend.enabled;
+    if (live && !DR.backend.staff) {
+      return { title: 'Trust & Safety console', seo: { noindex: true }, html: `${DR.ui.navbar({ title: 'Trust & Safety' })}${DR.ui.empty('shield', 'Staff only')}` };
+    }
     const tab = query.tab || 'pending';
     const all = Object.values(S().users).flatMap((u) => DR.verify.items(u));
     const pending = all.filter((x) => x.rec.status === 'pending');
@@ -43,27 +47,43 @@
     return {
       title: 'Trust & Safety console', seo: { noindex: true },
       html: `${DR.ui.navbar({ title: 'Trust & Safety' })}
-        <p class="notice notice-gold mx">${icon('alert', 16)}<span>Demo reviewer console. In production this is an internal back office with SSO, role-based access and logged, time-limited document viewing.</span></p>
-        <div class="card flush">
+        ${live ? '' : `<p class="notice notice-gold mx">${icon('alert', 16)}<span>Demo reviewer console. In production this is an internal back office with SSO, role-based access and logged, time-limited document viewing.</span></p>`}
+        ${live ? '' : `<div class="card flush">
           <label class="list-item"><span><b>Auto-approve after 20 s</b><br><small class="muted">Simulates reviewers for demos</small></span><span class="switch"><input type="checkbox" id="auto" ${S().demo.autoApprove !== false ? 'checked' : ''}><i></i></span></label>
           <label class="list-item"><span><b>Simulate counterparts</b><br><small class="muted">Seed providers accept requests & send quotes; sample customers reply</small></span><span class="switch"><input type="checkbox" id="sim" ${S().demo.simulate !== false ? 'checked' : ''}><i></i></span></label>
-        </div>
+        </div>`}
         <nav class="tabs">${[['pending', `Pending (${pending.length})`], ['reviewed', 'Reviewed'], ['audit', 'Audit log']].map(([k, l]) => `<a class="tab-link ${tab === k ? 'on' : ''}" href="#/admin?tab=${k}">${l}</a>`).join('')}</nav>
         ${tab === 'audit' ? `<div class="card">${S().audit.slice(0, 100).map((a) => `<div class="audit-row"><span class="muted xs">${fmtTs(a.ts)}</span><span class="small"><b data-no-i18n>${esc(a.actor)}</b> · ${esc(a.action)} · <span data-no-i18n>${esc(a.item || '')}</span>${a.reason ? ` — <i>${esc(a.reason)}</i>` : ''}</span></div>`).join('') || '<p class="muted small">No events yet.</p>'}</div>`
         : list.map(card).join('') || DR.ui.empty('box', tab === 'pending' ? 'Nothing waiting for review' : 'No reviewed items yet')}`,
       mount(el) {
-        el.querySelector('#auto').onchange = (e) => DR.store.update((s) => { s.demo.autoApprove = e.target.checked; }, { render: false });
-        el.querySelector('#sim').onchange = (e) => DR.store.update((s) => { s.demo.simulate = e.target.checked; }, { render: false });
-        el.addEventListener('click', (e) => {
+        if (!live) {
+          el.querySelector('#auto').onchange = (e) => DR.store.update((s) => { s.demo.autoApprove = e.target.checked; }, { render: false });
+          el.querySelector('#sim').onchange = (e) => DR.store.update((s) => { s.demo.simulate = e.target.checked; }, { render: false });
+        }
+        // with a backend, decisions are made by the review_item database function (staff only, audited)
+        const decide = async (it, status, reason) => {
+          if (live) await DR.backend.review(it.rec.rid, status, reason);
+          else { DR.verify.setStatus(it.u, it.kind, it.rec, status, { reason, actor: 'reviewer' }); DR.store.save(); }
+        };
+        el.addEventListener('click', async (e) => {
           const a = e.target.closest('[data-approve]');
-          if (a) { const it = list[+a.dataset.approve]; DR.verify.setStatus(it.u, it.kind, it.rec, 'verified', { actor: 'reviewer' }); DR.store.save(); DR.ui.toast('Approved'); DR.router.refresh(); }
+          if (a) {
+            try { await decide(list[+a.dataset.approve], 'verified'); DR.ui.toast('Approved'); } catch (err) { DR.ui.toast(err.message); }
+            DR.router.refresh();
+          }
           const r = e.target.closest('[data-reject]');
           if (r) {
             const it = list[+r.dataset.reject];
             const sh = DR.ui.sheet({
               title: 'Reject reason',
               html: `<div class="list">${DR.REJECT_REASONS.map((x, i) => `<label class="list-item"><span>${x}</span><input type="radio" name="rr" value="${i}" ${i === 0 ? 'checked' : ''}></label>`).join('')}</div><button class="btn btn-danger btn-block mt12" id="rj">Reject</button>`,
-              mount(s) { s.querySelector('#rj').onclick = () => { const reason = DR.REJECT_REASONS[+s.querySelector('input:checked').value]; DR.verify.setStatus(it.u, it.kind, it.rec, 'rejected', { reason, actor: 'reviewer' }); DR.store.save(); sh.close(); DR.ui.toast('Rejected — user notified'); DR.router.refresh(); }; },
+              mount(s) {
+                s.querySelector('#rj').onclick = async () => {
+                  const reason = DR.REJECT_REASONS[+s.querySelector('input:checked').value];
+                  try { await decide(it, 'rejected', reason); sh.close(); DR.ui.toast('Rejected — user notified'); } catch (err) { DR.ui.toast(err.message); }
+                  DR.router.refresh();
+                };
+              },
             });
           }
         });

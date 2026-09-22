@@ -365,7 +365,7 @@
     });
     const certs = (ver.certifications || []).map((c) => ({ name: c.name, issuer: c.issuer, licenceId: c.licenceId, issued: c.issued, expiry: c.expiry, credentialId: c.credentialId, url: c.url, verified: c.status === 'verified', status: c.status, file: c.file, registerCheck: c.registerCheck }));
     return {
-      id: u.id, isUser: true, country: cc, name: u.name || 'New provider', gender: u.gender || 'M', age: ageFrom(u.dob), area,
+      id: u.id, isUser: true, country: cc, name: u.name || 'New provider', gender: u.gender || 'M', age: u.age != null ? u.age : ageFrom(u.dob), area,
       lat: area.lat + jitter * 0.02, lng: area.lng - jitter * 0.02, groupId, subs: allSubs, role,
       headline: pv.headline || `${role}`, bio: pv.bio || '', languages: pv.languages && pv.languages.length ? pv.languages : ['English'],
       skill: myReviews.length ? Math.round((myReviews.reduce((a, x) => a + x.stars, 0) / myReviews.length) * 4) / 4 : null,
@@ -441,8 +441,13 @@
       const outOfWindow = this.dayIndex(key) > pol.advanceDays;
       const minTs = now + (opts.ignoreLead ? 0 : pol.leadMinutes * 60000);
       const buf = pol.bufferMinutes || 0;
-      const booked = S().orders.filter((o) => o.providerId === p.id && o.date === key && o.status !== 'cancelled' && o.id !== opts.excludeOrder)
-        .map((o) => ({ s: toMin(o.time) - buf, e: toMin(o.time) + Math.min(o.duration || 60, 240) + buf, id: o.id, exact: toMin(o.time) }));
+      const mine = S().orders.filter((o) => o.providerId === p.id && o.date === key && o.status !== 'cancelled' && o.id !== opts.excludeOrder);
+      // with a backend, other customers' bookings arrive as anonymous busy intervals
+      const ex = opts.excludeOrder && S().orders.find((o) => o.id === opts.excludeOrder);
+      const others = DR.backend && DR.backend.enabled ? DR.backend.busyFor(p.id).filter((b) => b.date === key
+        && !mine.some((o) => o.time === b.time) && !(ex && ex.date === b.date && ex.time === b.time)) : [];
+      const booked = mine.concat(others)
+        .map((o) => ({ s: toMin(o.time) - buf, e: toMin(o.time) + Math.min(o.duration || 60, 240) + buf, id: o.id || null, exact: toMin(o.time) }));
       const blocks = (a.blocks && a.blocks[key]) || [];
       const out = [];
       for (const [s, e] of this.ranges(p, key)) {
@@ -532,8 +537,11 @@
     },
     providers(cc) {
       cc = cc || S().country;
-      const users = Object.values(S().users).filter((u) => u.provider && u.provider.status === 'live' && (u.country || 'SG') === cc).map(fromUser).filter((p) => p.services.length);
-      return users.concat(genCountry(cc)).filter((p) => !S().blocked.includes(p.id));
+      const live = DR.backend && DR.backend.enabled;
+      const users = Object.values(S().users).filter((u) => u.provider && u.provider.status === 'live' && (u.country || 'SG') === cc && (!live || u._remote)).map(fromUser).filter((p) => p.services.length);
+      // with a real backend, only real providers are listed (seed data is for the demo)
+      const seeds = live && !(DR.CONFIG.supabase || {}).showSeeds ? [] : genCountry(cc);
+      return users.concat(seeds).filter((p) => !S().blocked.includes(p.id));
     },
     provider(id) {
       if (S().users[id]) return fromUser(S().users[id]);

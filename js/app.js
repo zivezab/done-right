@@ -6,9 +6,14 @@
   document.documentElement.lang = { zh: 'zh-Hans', ms: 'ms' }[DR.store.s.lang] || 'en';
   DR.i18n.start();
 
-  // Demo: simulate the other side of the marketplace (approvals, quotes, reviews, expiries)
-  DR.demo.tick();
-  setInterval(() => DR.demo.tick(), 3000);
-
   DR.router.start();
+
+  if (DR.backend.configured()) {
+    // Real backend: the database enforces booking rules, expiries and reviews; no simulated counterparts.
+    DR.backend.init().catch((e) => { console.error(e); DR.ui.toast('Could not reach the server — showing saved data'); });
+  } else {
+    // Demo: simulate the other side of the marketplace (approvals, quotes, reviews, expiries)
+    DR.demo.tick();
+    setInterval(() => DR.demo.tick(), 3000);
+  }
 })(window.DR);
