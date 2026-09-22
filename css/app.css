@@ -825,3 +825,8 @@ a.date-pill { text-align: center; }
 .admin-docs img { width: 92px; height: 92px; object-fit: cover; border-radius: 8px; background: #000; }
 .audit-row { display: flex; flex-direction: column; padding: 8px 0; border-top: 1px solid var(--line); }
 .audit-row:first-child { border-top: 0; }
+
+/* read receipts: ✓ sent (faded) · ✓✓ read (solid) — on my own (brand-coloured) bubbles */
+.receipt { margin-left: 4px; letter-spacing: -2px; font-weight: 700; opacity: .55; }
+.receipt-read { color: #fff; opacity: 1; }
+.receipt-sending { letter-spacing: 0; }

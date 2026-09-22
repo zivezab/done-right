@@ -589,9 +589,17 @@
     DR.chat.markRead(uid, peer);
     const call = DR.canCall(uid, peer);
     const quick = peer === 'support' ? ['I need help with a booking', 'Refund status', 'Report a safety issue'] : ['Are you available this weekend?', "What's included?", 'Do you bring your own tools?', 'Can you do online sessions?'];
-    const bubble = (m) => m.system ? `<div class="bubble-sys">${esc(m.text)}</div>` : `<div class="bubble ${m.from === uid ? 'me' : 'them'}"><p data-no-i18n>${esc(m.text)}</p><small>${DR.u.pad(new Date(m.ts).getHours())}:${DR.u.pad(new Date(m.ts).getMinutes())}</small></div>`;
-    const bubbles = () => { const th = DR.chat.get(uid, peer); return th && th.msgs.length ? th.msgs.map(bubble).join('') : `<div class="center muted small pad-v">${DR.chat.avatar(peer, 'av-lg round')}<p class="mt8">Start a conversation with <span data-no-i18n>${esc(name)}</span></p></div>`; };
-    const presence = () => (!real ? (peer === 'support' ? ('Typically replies in 5 min') : ('Demo account · auto-replies')) : DR.rt.isTyping(tid, peer) ? ('typing…') : DR.rt.online(peer) ? ('Online') : ('Offline'));
+    // ✓ sent · ✓✓ read (server conversations only)
+    const tick = (m, th) => {
+      const st = DR.chat.receipt(m, th, uid);
+      if (!st) return '';
+      const label = { sending: 'Sending message', sent: 'Message sent', read: 'Message read' }[st];
+      return ` <span class="receipt receipt-${st}" title="${label}" aria-label="${label}">${st === 'sending' ? '…' : st === 'read' ? '✓✓' : '✓'}</span>`;
+    };
+    const bubble = (m, th) => m.system ? `<div class="bubble-sys">${esc(m.text)}</div>` : `<div class="bubble ${m.from === uid ? 'me' : 'them'}"><p data-no-i18n>${esc(m.text)}</p><small>${DR.u.pad(new Date(m.ts).getHours())}:${DR.u.pad(new Date(m.ts).getMinutes())}${tick(m, th)}</small></div>`;
+    const bubbles = () => { const th = DR.chat.get(uid, peer); return th && th.msgs.length ? th.msgs.map((m) => bubble(m, th)).join('') : `<div class="center muted small pad-v">${DR.chat.avatar(peer, 'av-lg round')}<p class="mt8">Start a conversation with <span data-no-i18n>${esc(name)}</span></p></div>`; };
+    // presence and typing travel between tabs on this device only, so with a backend "Offline" would be a guess
+    const presence = () => (!real ? (peer === 'support' ? ('Typically replies in 5 min') : ('Demo account · auto-replies')) : DR.rt.isTyping(tid, peer) ? ('typing…') : DR.rt.online(peer) ? ('Online') : DR.backend.enabled ? '' : ('Offline'));
     let render = () => {};
     return {
       title: name, bar: true, cls: 'chat-page', seo: { noindex: true },
