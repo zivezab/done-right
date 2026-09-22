@@ -180,10 +180,13 @@
     try {
       const { data: { session } } = await sb.auth.getSession();
       me = session && session.user ? session.user.id : null;
-      const [live, svcs, creds] = await Promise.all([
+      const [live, svcs, creds, reviewRows] = await Promise.all([
         q(sb.from('providers').select('*').eq('status', 'live')),
         q(sb.from('bookable_services').select('*')),
         q(sb.from('provider_credentials').select('*')),
+        // optional: a project without the reviews migration still loads (reviews just stay empty)
+        q(sb.from('public_reviews').select('*').order('created_at', { ascending: false }).limit(2000))
+          .catch((e) => { console.warn('[backend] reviews unavailable:', e.message); return []; }),
       ]);
       let mine = null;
       if (me) {
@@ -246,6 +249,7 @@
       } else {
         s.orders = [];
       }
+      applyReviews(reviewRows);
       DR.store.setSession(me && s.users[me] ? me : null);   // also saves; brings along a guest's cart
       if (me && s.users[me]) snapshotPushed(s.users[me]);
       subscribe();
@@ -525,6 +529,8 @@
       await ensureNames(payload.new);
       upsertOrder(payload.new);
       delete busy[payload.new.provider_id];
+      // a booking of mine was reviewed → fetch the new review
+      if (payload.new.status === 'completed' && payload.new.provider_id === me) await B.loadReviews();
       DR.emit('sync');
     };
     channel = sb.channel('dr-' + me)
@@ -572,6 +578,52 @@
     try { await sb.auth.signOut(); } catch (e) { /* offline: local session is cleared anyway */ }
     await B.hydrate();
   };
+  // ------------------------------------------------------------------ reviews
+  // Reviews come from public_reviews (reviewer's account never exposed); writes go through database functions.
+  const PHOTOS = 'review-photos';
+  const photoUrl = (path) => sb.storage.from(PHOTOS).getPublicUrl(path).data.publicUrl;
+  function mapReview(r) {
+    return {
+      id: r.id, providerId: r.provider_id, userId: r.mine ? me : null, name: r.reviewer_name, anon: !!r.anonymous,
+      stars: r.stars, text: r.text, tags: r.tags || [], photos: (r.photos || []).map((x) => ({ path: x.path, url: photoUrl(x.path) })),
+      verified: true, date: ms(r.created_at), area: r.area || '', sub: r.service_name, subId: r.service_id,
+      useful: 0, vip: false, repeat: !!r.repeat_customer, remote: true,
+    };
+  }
+  function applyReviews(rows) {
+    const s = S();
+    s.reviews = rows.map(mapReview);
+    s.replies = {};
+    rows.forEach((r) => { if (r.reply) s.replies[r.id] = { text: r.reply, ts: ms(r.reply_at), providerId: r.provider_id }; });
+  }
+  B.loadReviews = async function loadReviews() {
+    applyReviews(await q(sb.from('public_reviews').select('*').order('created_at', { ascending: false }).limit(2000)));
+    DR.store.save();
+  };
+  // photos: local file refs from the review sheet → public bucket at <me>/<order>/<file>.<ext>
+  B.submitReview = async function submitReview(o, { stars, text, tags = [], anon = false, photos = [] }) {
+    const paths = [];
+    for (const f of photos.slice(0, 4)) {
+      const url = await DR.files.get(f.id);
+      if (!url) continue;
+      const blob = await (await fetch(url)).blob();
+      const path = `${me}/${o.id}/${f.id}.${EXT[blob.type] || 'jpg'}`;
+      const { error } = await sb.storage.from(PHOTOS).upload(path, blob, { contentType: blob.type, upsert: false });
+      if (error && String(error.statusCode) !== '409' && !/already exists|duplicate/i.test(error.message)) throw new Error(error.message);
+      paths.push(path);
+    }
+    await rpc('submit_review', { p_order: o.id, p_stars: stars, p_text: text, p_tags: tags, p_anonymous: !!anon, p_photos: paths });
+    const x = S().orders.find((y) => y.id === o.id);
+    if (x) { x.status = 'completed'; x.reviewed = true; }
+    await B.loadReviews();
+  };
+  B.replyToReview = async function replyToReview(id, text) {
+    const r = await rpc('reply_to_review', { p_review: id, p_text: text || '' });
+    if (r.reply) S().replies[id] = { text: r.reply, ts: ms(r.reply_at), providerId: r.provider_id };
+    else delete S().replies[id];
+    DR.store.save();
+  };
+
   B.review = async function review(rid, status, reason) {
     await rpc('review_item', { p_item: rid, p_status: status, p_reason: reason || null });
     await B.hydrate();

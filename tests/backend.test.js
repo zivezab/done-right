@@ -42,6 +42,7 @@
           },
           remove: async (paths) => { this_.removed.push(...paths); return { data: [], error: null }; },
           createSignedUrls: async (paths, secs) => ({ data: paths.map((p) => ({ path: p, signedUrl: `https://signed.example/${p}?ttl=${secs}` })), error: null }),
+          getPublicUrl: (path) => ({ data: { publicUrl: `https://public.example/${bucket}/${path}` } }),
         }),
       },
     };
@@ -83,9 +84,18 @@
       }
       if (table === 'rpc:follower_counts') return state.counts || [];
       if (table === 'rpc:log_document_view') return null;
+      if (table === 'public_reviews') return state.reviews || [];
+      if (table === 'rpc:submit_review') { state.reviews = [reviewRow({ mine: true })]; return {}; }
+      if (table === 'rpc:reply_to_review') return { id: 'rv-1', provider_id: PRO, reply: (ops.find((o) => o[0] === 'eq')[2] || {}).p_text || null, reply_at: new Date().toISOString() };
       throw new Error('unexpected ' + table);
     };
   }
+
+  const reviewRow = (extra = {}) => Object.assign({
+    id: 'rv-1', provider_id: PRO, service_id: 'swimming-instructor', service_name: 'Swimming lessons', stars: 5, text: 'Great coach',
+    tags: ['Patient'], area: 'Orchard', photos: [{ path: `${ME}/o-1/f_1.jpg` }], reply: 'Thank you!', reply_at: '2026-09-20T00:00:00Z',
+    created_at: '2026-09-19T00:00:00Z', reviewer_name: 'Chris', anonymous: false, mine: false, repeat_customer: false,
+  }, extra);
 
   let original;
   async function start(state = {}) {
@@ -255,6 +265,42 @@
       await start();
       const urls = await DR.backend.signedUrls(['u/d/f.jpg']);
       expect(urls['u/d/f.jpg']).toMatch(/ttl=300$/);
+    }));
+  });
+
+  describe('backend adapter: reviews', () => {
+    it('shows server reviews, ratings and replies on provider profiles', guard(async () => {
+      await start({ reviews: [reviewRow(), reviewRow({ id: 'rv-2', stars: 3, reply: null })] });
+      const p = DR.data.provider(PRO);
+      expect(p.reviews).toBe(2);
+      expect(p.skill).toBe(4);
+      const list = DR.data.reviews(p);
+      const first = list.find((r) => r.id === 'rv-1');
+      expect(first.reply.text).toBe('Thank you!');
+      expect(first.photos[0].url).toBe(`https://public.example/review-photos/${ME}/o-1/f_1.jpg`);
+      expect(list.find((r) => r.id === 'rv-2').reply).toBe(undefined);
+    }));
+    it('submits a review with photos through the database function', guard(async () => {
+      const c = await start({ orders: [orderRow({ status: 'to_review' })] });
+      const id = await DR.files.put('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==');
+      const o = DR.store.s.orders.find((x) => x.id === 'o-1');
+      await DR.backend.submitReview(o, { stars: 5, text: 'Great coach', tags: ['Patient'], anon: true, photos: [{ id, image: true }] });
+      expect(c.uploads[0].bucket).toBe('review-photos');
+      expect(c.uploads[0].path).toBe(`${ME}/o-1/${id}.jpg`);
+      const call = c.rpcs.find((r) => r.fn === 'submit_review');
+      expect(call.args.p_order).toBe('o-1');
+      expect(call.args.p_anonymous).toBe(true);
+      expect(call.args.p_photos).toEqual([`${ME}/o-1/${id}.jpg`]);
+      expect(DR.store.s.orders.find((x) => x.id === 'o-1').status).toBe('completed');
+      expect(DR.store.s.reviews[0].userId).toBe(ME);
+    }));
+    it('posts and removes provider replies on the server', guard(async () => {
+      const c = await start({ reviews: [reviewRow({ reply: null })] });
+      await DR.backend.replyToReview('rv-1', 'Thanks for booking!');
+      expect(c.rpcs.find((r) => r.fn === 'reply_to_review').args.p_text).toBe('Thanks for booking!');
+      expect(DR.store.s.replies['rv-1'].text).toBe('Thanks for booking!');
+      await DR.backend.replyToReview('rv-1', '');
+      expect(DR.store.s.replies['rv-1']).toBe(undefined);
     }));
   });
 

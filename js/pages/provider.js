@@ -33,7 +33,7 @@
   }
 
   function photosHTML(r) {
-    if (r.photos && r.photos.length) return `<div class="review-photos">${r.photos.map((f) => `<img data-file="${f.id}" alt="" data-zoom>`).join('')}</div>`;
+    if (r.photos && r.photos.length) return `<div class="review-photos">${r.photos.map((f) => (f.url ? `<img src="${esc(f.url)}" alt="" loading="lazy" data-zoom>` : `<img data-file="${f.id}" alt="" data-zoom>`)).join('')}</div>`;
     if (r.seedPhotos && DR.SUB[r.subId]) return `<div class="review-photos">${Array.from({ length: r.seedPhotos }, () => `<span class="rp-thumb" data-zoom>${DR.ui.thumb(DR.SUB[r.subId])}</span>`).join('')}</div>`;
     return '';
   }
@@ -58,13 +58,22 @@
         <p class="muted xs mt4">Replies are public. Keep them courteous — no personal data.</p>
         <div class="row gap10 mt12">${cur ? '<button class="btn btn-ghost" id="rdel">Delete</button>' : ''}<button class="btn btn-primary grow" id="rsave">Post reply</button></div>`,
       mount(s) {
+        const save = async (text) => {
+          if (DR.backend.enabled) {
+            try { await DR.backend.replyToReview(review.id, text); } catch (err) { return DR.ui.toast(err.message); }
+          } else {
+            DR.store.update((st) => { if (text) st.replies[review.id] = { text, ts: Date.now(), providerId }; else delete st.replies[review.id]; });
+          }
+          sh.close();
+          if (text) DR.ui.toast('Reply posted');
+          DR.router.refresh();
+        };
         s.querySelector('#rsave').onclick = () => {
           const text = s.querySelector('#rt').value.trim();
           if (text.length < 2) return DR.ui.toast('Write a reply first');
-          DR.store.update((st) => { st.replies[review.id] = { text, ts: Date.now(), providerId }; });
-          sh.close(); DR.ui.toast('Reply posted');
+          save(text);
         };
-        const d = s.querySelector('#rdel'); if (d) d.onclick = () => { DR.store.update((st) => { delete st.replies[review.id]; }); sh.close(); };
+        const d = s.querySelector('#rdel'); if (d) d.onclick = () => save('');
       },
     });
   };
