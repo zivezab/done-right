@@ -32,11 +32,11 @@ The app is fully client-side. State lives in `localStorage` (follows, hidden pro
 
 ## Tests
 
-Open http://localhost:5173/tests/index.html. The suite has 143 tests covering availability, booking and rescheduling, quotes, licensing, verification, chat, search, SEO, i18n, per-account lists, the Supabase adapter (against a mock client) and performance budgets. It runs in the browser against isolated storage (`doneright.test.v1`), so your demo data is untouched. Results are also exposed as `window.__TESTS__` for automation.
+Open http://localhost:5173/tests/index.html. The suite has 155 tests covering availability, booking and rescheduling, quotes, licensing, verification, chat, search, SEO, i18n, per-account lists, the Supabase adapter (against a mock client) and performance budgets. It runs in the browser against isolated storage (`doneright.test.v1`), so your demo data is untouched. Results are also exposed as `window.__TESTS__` for automation.
 
 The i18n specs crawl about 42 routes in both 中文 and Bahasa Melayu, and fail on any untranslated UI string. Missing strings are listed in `window.__MISSING_ZH__` and `window.__MISSING_MS__`.
 
-The database has its own suite of 209 checks, run against a throwaway local Postgres (`brew install postgresql@16`):
+The database has its own suite of 220 checks, run against a throwaway local Postgres (`brew install postgresql@16`):
 
 ```bash
 python3 tools/db_test.py

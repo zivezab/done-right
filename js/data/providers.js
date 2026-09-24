@@ -389,7 +389,7 @@
       policy: pv.policy || DR.defaultPolicy(),
       metrics: null, photos: 1, photoFile: u.avatar && u.avatar.id, photoMatch: ver.identity && ver.identity.faceMatch, uploaded: 0,
       travelBase: +pv.travelFee || 0, serves: pv.serves || 'all', isNew: true, activeToday: true, coupon: false, responseMins: 15,
-      status: pv.status, paused: pv.paused, skills: pv.skills || [],
+      status: pv.status, paused: pv.paused, skills: pv.skills || [], links: u.links || pv.links || {},
     };
   }
 
