@@ -830,3 +830,10 @@ a.date-pill { text-align: center; }
 .receipt { margin-left: 4px; letter-spacing: -2px; font-weight: 700; opacity: .55; }
 .receipt-read { color: #fff; opacity: 1; }
 .receipt-sending { letter-spacing: 0; }
+
+/* profile links */
+.input.invalid { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(232, 96, 60, .25); }
+.p-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.p-link { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px; background: var(--card-2, rgba(127,127,127,.12)); color: inherit; font-size: 13px; text-decoration: none; max-width: 100%; }
+.p-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-link:hover { background: rgba(127,127,127,.2); }

@@ -396,9 +396,17 @@
     return {
       title: 'Provider profile', bar: true, seo: { noindex: true },
       html: `${DR.ui.navbar({ title: 'Provider profile' })}<section class="card">${profileForm(u)}</section>
+        <section class="card"><div class="card-h"><h2>${icon('link', 18)} Links</h2></div>${DR.links.form(u)}</section>
         <section class="card"><div class="card-h"><h2>Credentials</h2></div><p class="muted small">Education, licences, certifications and work experience are managed in the Verification centre so they can carry a verified badge.</p><a class="btn btn-ghost btn-block mt8" href="#/verify">Open verification centre</a></section>
         <div class="bottom-bar"><a class="btn btn-ghost" href="#/provider/${u.id}">Preview</a><button class="btn btn-primary grow" id="save">Save</button></div>`,
-      mount(el) { const save = bindProfileForm(el, u); el.querySelector('#save').onclick = () => { if (save()) { DR.ui.toast('Profile saved'); DR.router.back('/pro'); } }; },
+      mount(el) {
+        const save = bindProfileForm(el, u);
+        el.querySelector('#save').onclick = () => {
+          if (!DR.links.saveForm(el, u.id) || !save()) return;
+          DR.ui.toast('Profile saved');
+          DR.router.back('/pro');
+        };
+      },
     };
   });
 

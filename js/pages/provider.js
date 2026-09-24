@@ -37,6 +37,12 @@
     if (r.seedPhotos && DR.SUB[r.subId]) return `<div class="review-photos">${Array.from({ length: r.seedPhotos }, () => `<span class="rp-thumb" data-zoom>${DR.ui.thumb(DR.SUB[r.subId])}</span>`).join('')}</div>`;
     return '';
   }
+  // Links the provider added (not verified by Done Right); opened in a new tab without passing on who clicked
+  function linksHTML(p) {
+    const links = DR.links ? DR.links.PLATFORMS.filter(([k]) => p.links && p.links[k]) : [];
+    if (!links.length) return '';
+    return `<div class="p-links">${links.map(([k, label]) => `<a class="p-link p-link-${k}" href="${esc(p.links[k])}" target="_blank" rel="noopener noreferrer nofollow ugc" title="${esc(label)}">${icon(k === 'website' ? 'globe' : 'link', 14)}<span data-no-i18n>${esc(k === 'website' ? DR.links.display(k, p.links[k]) : label)}</span></a>`).join('')}</div>`;
+  }
   DR.reviewItem = (r, opts = {}) => `<div class="review" id="rv-${r.id}">
       <img class="av-md round" src="${DR.ui.avatar('rv' + r.name, hash(r.name) % 2 ? 'F' : 'M', 1)}" alt="">
       <div class="grow minw0">
@@ -149,6 +155,7 @@
           ${attr('Area', esc(p.area.n))}${attr('Responds', `~${p.responseMins} min`)}${attr('Mode', DR.data.mode(p) === 'both' ? 'Online & on-site' : 'On-site')}
         </div>
         ${p.bio ? `<button class="p-bio clamp2" id="bio" data-no-i18n>${esc(p.bio)}</button>` : ''}
+        ${linksHTML(p)}
         ${p.skills && p.skills.length ? `<div class="chips-xs mt8" data-no-i18n>${p.skills.map((s) => `<span class="chip-xs">${esc(s)}</span>`).join('')}</div>` : ''}
       </section>
       <a class="cred-strip" href="#/provider/${p.id}/credentials">${creds.length ? creds.slice(0, 4).map(([, l]) => `<span>${icon('checkCircle', 14)}${l}</span>`).join('') : `<span class="muted">${p.identityPending ? 'Verification in review' : 'Not yet verified'}</span>`}${icon('right', 14)}</a>

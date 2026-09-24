@@ -307,7 +307,8 @@
         ${DR.ui.field('Mobile', `<input class="input" value="${esc(u.phone || '—')}" disabled>`)}
         ${DR.markets().length > 1 ? DR.ui.field('Country', `<select class="input" name="country">${DR.marketCountries().map((c) => `<option value="${c.code}" ${c.code === (u.country || DR.markets()[0]) ? 'selected' : ''}>${c.flag} ${c.name}</option>`).join('')}</select>`) : `<input type="hidden" name="country" value="${DR.markets()[0]}">`}
         <button class="btn btn-primary btn-block mt12">Save</button>
-      </form>`,
+      </form>
+      <section class="card"><div class="card-h"><h2>${icon('link', 18)} Links</h2></div>${DR.links.form(u, { intro: 'Add your other profiles. They appear on your public provider profile.' })}</section>`,
       mount(el) {
         const inp = el.querySelector('[name=avatar]');
         inp.addEventListener('change', async () => {
@@ -317,6 +318,7 @@
           e.preventDefault();
           const fd = Object.fromEntries(new FormData(e.target));
           if (fd.name.trim().length < 2) return DR.ui.toast('Please enter your name');
+          if (!DR.links.saveForm(el, u.id)) return;
           DR.store.update((s) => { const us = s.users[u.id]; Object.assign(us, { name: fd.name.trim(), gender: fd.gender, dob: fd.dob, email: fd.email.trim(), country: fd.country, avatar: draft.avatar }); }, { render: false });
           DR.ui.toast('Profile saved'); DR.router.back('/me');
         });

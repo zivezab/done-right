@@ -94,8 +94,13 @@
   }
 
   // ------------------------------------------------------------------ app shape → server payloads
+  let linksColumn = false;   // the profile-links migration is applied (profiles carry `links`)
   function profilePayload(u) {
-    return { name: u.name || '', gender: u.gender || '', dob: u.dob || null, country: u.country || 'SG', roles: u.roles || { consumer: true }, addresses: u.addresses || [], consents: u.consents || {} };
+    return Object.assign(
+      { name: u.name || '', gender: u.gender || '', dob: u.dob || null, country: u.country || 'SG', roles: u.roles || { consumer: true }, addresses: u.addresses || [], consents: u.consents || {} },
+      // only once the database has the column (or there is something to save), so older projects keep working
+      linksColumn || Object.keys(u.links || {}).length ? { links: u.links || {} } : {},
+    );
   }
   function providerPayload(u) {
     const pv = u.provider;
@@ -211,7 +216,7 @@
       if (mine && mine.quotes) mine.quotes.offers.forEach((f) => ids.add(f.provider_id));
       if (ids.size) {
         const pubs = await q(sb.from('public_profiles').select('*').in('id', [...ids]));
-        pubs.forEach((p) => { names[p.id] = p.name || 'Done Right user'; B._pub = B._pub || {}; B._pub[p.id] = p; });
+        pubs.forEach((p) => { names[p.id] = p.name || 'Done Right user'; B._pub = B._pub || {}; B._pub[p.id] = p; if ('links' in p) linksColumn = true; });
       }
 
       await loadFollowerCounts(live.map((p) => p.user_id), mine ? mine.lists.follows.filter((f) => f.kind === 'provider').map((f) => f.target) : []);
@@ -226,7 +231,7 @@
         if (row.user_id === me) return;
         const pub = (B._pub || {})[row.user_id] || {};
         s.users[row.user_id] = {
-          id: row.user_id, _remote: true, name: pub.name || '', gender: pub.gender || '', age: pub.age, country: row.country,
+          id: row.user_id, _remote: true, name: pub.name || '', gender: pub.gender || '', age: pub.age, country: row.country, links: pub.links || {},
           roles: { provider: true }, provider: mapProvider(row, svcs.filter((x) => x.provider_id === row.user_id)),
           verification: mapVerification(creds.filter((c) => c.user_id === row.user_id)),
         };
@@ -235,7 +240,7 @@
         const p = mine.profile;
         const localRec = (rid) => prevMe && verificationRecs(prevMe).map((x) => x[1]).find((r) => r.rid === rid);
         s.users[me] = {
-          id: me, _remote: true, createdAt: ms(p.created_at), name: p.name, gender: p.gender, dob: p.dob || '', country: p.country,
+          id: me, _remote: true, createdAt: ms(p.created_at), name: p.name, gender: p.gender, dob: p.dob || '', country: p.country, links: p.links || {},
           phone: p.phone || '', email: p.email || '', roles: p.roles || { consumer: true }, addresses: p.addresses || [], consents: p.consents || {},
           avatar: prevMe && prevMe.avatar, verification: mapVerification(mine.myItems, localRec),
           provider: mine.prov ? mapProvider(mine.prov, mine.myServices) : undefined,

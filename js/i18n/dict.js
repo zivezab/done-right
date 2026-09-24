@@ -167,6 +167,7 @@ DR.I18N_PATTERNS = [
   [/^💬 New quote for “(.+)”\.$/, '💬 “$1”收到新报价。', '💬 Sebut harga baharu untuk “$1”.'],
   [/^📞 Voice call · (\d+:\d{2})$/, '📞 语音通话 · $1', '📞 Panggilan suara · $1'],
   [/^Not saved to the server — (.+)$/, '未保存到服务器——$1', 'Tidak disimpan ke pelayan — $1'],
+  [/^Enter a valid (.+) link$/, (m, t) => `请输入有效的${t(m[1])}链接`, (m, t) => `Masukkan pautan ${t(m[1])} yang sah`],
   [/^Join (\d+)\+ service categories across Singapore & Malaysia — from swimming coaches and singing teachers to ML engineers and home cleaners\.$/,
     '加入 $1+ 个服务类别，覆盖新加坡和马来西亚——从游泳教练、声乐老师到机器学习工程师和家庭保洁师。',
     'Sertai $1+ kategori perkhidmatan di seluruh Singapura & Malaysia — daripada jurulatih renang dan guru nyanyian hingga jurutera ML dan pembersih rumah.'],
