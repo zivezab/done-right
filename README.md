@@ -42,6 +42,14 @@ The database has its own suite of 220 checks, run against a throwaway local Post
 python3 tools/db_test.py
 ```
 
+Against a real Supabase project, the functional tests walk the whole journey as real accounts (sign-up, listing, verification, booking, payment, chat, rescheduling, completion, reviews, quotes, document storage, refunds) and then check the stored data and who can read it:
+
+```bash
+python3 tools/e2e_test.py
+```
+
+It needs the project's Secret key (`sb_secret_…`, from *Project Settings → API Keys*) in `SUPABASE_SERVICE_ROLE_KEY` or in the git-ignored `secret-do-not-commit` file. That key bypasses every access rule, so keep it out of the app and out of git. The tests create their own throwaway accounts (`dr-e2e-…@example.com`), touch nothing belonging to real users, and delete everything afterwards; `--sweep` clears anything left by an interrupted run.
+
 ## Backend (Supabase)
 
 The app works in two modes:
