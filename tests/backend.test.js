@@ -189,7 +189,7 @@
       await start();
       const p = DR.data.provider(PRO);
       DR.avail.slots(p, day(), 60);          // triggers the busy fetch
-      await H.sleep(20);
+      await H.waitFor(() => DR.avail.slots(p, day(), 60).some((s) => s.time === '14:00' && !s.ok), 'the busy times to load');
       const slot = DR.avail.slots(p, day(), 60).find((s) => s.time === '14:00');
       expect(slot.ok).toBe(false);
       expect(slot.why).toBe('booked');
@@ -358,18 +358,16 @@
       const m = DR.chat.send(ME, PRO, 'See you then');
       expect(m.pending).toBe(true);
       expect(DR.chat.get(ME, PRO).msgs.slice(-1)[0].text).toBe('See you then');
-      await H.sleep(20);
+      await H.waitFor(() => m.pending === undefined, 'the server to confirm the message');
       expect(c.rpcs.find((r) => r.fn === 'send_message').args).toEqual({ p_to: PRO, p_text: 'See you then' });
       expect(m.id).toBe(501);
-      expect(m.pending).toBe(undefined);
-      await H.sleep(1400);
+      await H.sleep(200);   // an auto-reply would have landed by now
       expect(DR.chat.get(ME, PRO).msgs.length).toBe(3);   // no demo auto-reply for real people
     }));
     it('removes a message the server refused and says why', guard(async () => {
       await start(chatState({ sendError: 'You are sending messages too quickly — please wait a moment' }));
       DR.chat.send(ME, PRO, 'spam');
-      await H.sleep(20);
-      expect(DR.chat.get(ME, PRO).msgs.length).toBe(2);
+      await H.waitFor(() => DR.chat.get(ME, PRO).msgs.length === 2, 'the refused message to be removed');
       expect(document.getElementById('toast').textContent).toMatch(/too quickly/);
     }));
     it('adds incoming messages live and ignores its own echo', guard(async () => {
@@ -379,17 +377,15 @@
       expect(DR.chat.unreadTotal(ME)).toBe(1);
       const m = DR.chat.send(ME, PRO, 'Will do');
       await DR.backend._test.onMessage({ new: { id: 777, thread_id: 't-1', sender: ME, system: false, text: 'Will do', created_at: new Date().toISOString() } });
-      await H.sleep(20);
+      await H.waitFor(() => m.pending === undefined, 'the message to be confirmed');
       expect(DR.chat.get(ME, PRO).msgs.filter((x) => x.text === 'Will do').length).toBe(1);
-      expect(m.pending).toBe(undefined);
     }));
     it('records read receipts on the server', guard(async () => {
       const state = chatState();
       await start(state);
       DR.chat.markRead(ME, PRO);
       expect(DR.chat.unreadTotal(ME)).toBe(0);
-      await H.sleep(900);
-      expect(state.marked).toBe(1);
+      await H.waitFor(() => state.marked === 1, 'the read receipt to reach the server');
     }));
     it('shows ✓ sent and ✓✓ read on my messages, updated live', guard(async () => {
       await start(chatState({ reads: [{ thread_id: 't-1', user_id: PRO, last_read_at: '2026-09-21T01:30:00Z' }] }));

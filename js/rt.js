@@ -39,6 +39,7 @@
     support: ['Thanks for contacting Done Right Support. An agent will join this chat within 5 minutes.', 'For urgent booking issues, you can also call our 24/7 hotline listed in the Help Centre.'],
     customer: ['Great, thank you!', 'Noted, see you then.', 'Can you come a little earlier?', 'Thanks for the update 👍'],
   };
+  const autoReplyTimers = [];
   DR.chat = {
     tid: (a, b) => [a, b].sort().join('|'),
     // a real person (not a demo account): known locally, or any server account when a backend is connected
@@ -65,14 +66,18 @@
     notify(from, to, text) { if (from && to) this.send(from, to, text, { system: true }); },
     autoReply(bot, user) {
       const pool = bot === 'support' ? REPLIES.support : String(bot).startsWith('demo-') ? REPLIES.customer : REPLIES.provider;
-      setTimeout(() => {
-        const th = this.ensure(bot, user);
+      const wait = (DR.CONFIG && DR.CONFIG.demo && DR.CONFIG.demo.autoReplyMs) || 1200;
+      autoReplyTimers.push(setTimeout(() => {
+        const th = this.get(bot, user);
+        if (!th) return;   // the conversation is gone (e.g. demo data was reset): nothing to reply to
         th.msgs.push({ from: bot, text: pool[Math.floor(Math.random() * pool.length)], ts: Date.now() });
         th.updated = Date.now(); th.unread[user] = (th.unread[user] || 0) + 1;
         DR.store.save();
         DR.emit('chat', { tid: this.tid(bot, user) });
-      }, 1200);
+      }, wait));
     },
+    // pending demo replies (cancelled when demo data is reset, so they cannot land in a fresh store)
+    cancelAutoReplies() { autoReplyTimers.splice(0).forEach(clearTimeout); },
     list(uid) { return Object.entries(S().threads).filter(([, t]) => t.members && t.members.includes(uid)).sort((a, b) => (b[1].updated || 0) - (a[1].updated || 0)); },
     peer(th, uid) { return th.members.find((m) => m !== uid) || uid; },
     // Delivery status of one of my messages: 'sending' | 'sent' | 'read' (null for others' messages and local chats)

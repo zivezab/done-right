@@ -36,13 +36,13 @@ describe('chat, masked numbers & calls', () => {
   it('auto-replies from demo accounts', async () => {
     H.user('c1');
     DR.chat.send('c1', 'support', 'help please');
-    await H.sleep(1400);
+    await H.waitFor(() => (DR.chat.get('c1', 'support') || { msgs: [] }).msgs.length === 2, 'the auto-reply');
     expect(DR.chat.get('c1', 'support').msgs.length).toBe(2);
   });
   it('does not auto-reply between two real users', async () => {
     H.user('a'); H.user('b');
     DR.chat.send('a', 'b', 'hello');
-    await H.sleep(1400);
+    await H.sleep(200);   // long enough for an auto-reply to have arrived, if one were coming
     expect(DR.chat.get('a', 'b').msgs.length).toBe(1);
   });
 });
