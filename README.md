@@ -42,7 +42,11 @@ The database has its own suite of 220 checks, run against a throwaway local Post
 python3 tools/db_test.py
 ```
 
-Against a real Supabase project, the functional tests walk the whole journey as real accounts (sign-up, listing, verification, booking, payment, chat, rescheduling, completion, reviews, quotes, document storage, refunds) and then check the stored data and who can read it:
+Against a real Supabase project, the functional tests act as real accounts and then check the stored data and who can read it. Three sections (`--only journey|services|chat`):
+
+- **journey** — sign-up, listing and verification, public visibility, profile links, booking and payment, chat, rescheduling, completion and reviews, quotes, document storage, refunds.
+- **services** — the catalogue itself: every service, group and licence type present and sane; regulated services hidden until the licence is verified; childcare-type services hidden until the background check is verified; a booking in every one of the 24 groups (`--all-services` books all 303); quote-based services end to end.
+- **chat** — who may message whom (including that providers cannot cold-message people), message limits, the 30-a-minute flood limit, a booking notice for every event (confirmed, request, accepted, reschedule request and approval, proposal and decline, cancellation), unread counts, read receipts and privacy.
 
 ```bash
 python3 tools/e2e_test.py

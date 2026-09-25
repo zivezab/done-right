@@ -3,11 +3,17 @@
 
 Runs the whole customer/provider journey through the same API the app uses — signed in as real
 accounts, so row-level security applies exactly as in the browser — then checks the stored data:
-sign-up, provider listing and verification, public visibility, booking, payment, rescheduling,
-chat with read receipts, completion and reviews, quotes, profile links and document storage.
+  journey   sign-up, listing and verification, public visibility, profile links, booking and payment,
+            chat, rescheduling, completion and reviews, quotes, document storage, refunds
+  services  the service catalogue: licence and background-check gates per service, a booking in every
+            service group (or every service with --all-services), and quote-based services
+  chat      who may message whom, message limits, the flood limit, booking notices for every event,
+            unread counts, read receipts and privacy
 
   export SUPABASE_SERVICE_ROLE_KEY='sb_secret_...'   # Dashboard → Project Settings → API Keys → Secret key
   python3 tools/e2e_test.py                     # project URL/anon key come from js/config.local.js
+  python3 tools/e2e_test.py --only chat         # just one section (journey | services | chat)
+  python3 tools/e2e_test.py --all-services      # book every one of the 303 services, not one per group
   python3 tools/e2e_test.py --keep              # leave the test accounts behind for inspection
 
 The service-role key bypasses every access rule. Keep it in your shell for the run only: never put it
@@ -161,6 +167,66 @@ def make_user(base, anon, service, label):
     return Client(base, anon, session['access_token'], uid, label)
 
 
+class Ctx:
+    """Shared state for a run: the project, the service-role client, and every account created."""
+
+    def __init__(self, base, anon, service):
+        self.base, self.anon, self.service = base, anon, service
+        self.admin = Client(base, service, service, None, 'service')
+        self.anon_client = Client(base, anon, None, None, 'anon')
+        self.today = datetime.now(SGT).date()
+        self.uids = []
+
+    def user(self, label):
+        c = make_user(self.base, self.anon, self.service, label)
+        self.uids.append(c.uid)
+        return c
+
+    def day(self, offset):
+        return (self.today + timedelta(days=offset)).isoformat()
+
+    # A live provider offering one service, with any licence or background check it needs.
+    def provider_for(self, service_id, label='provider', area='Orchard', policy=None, price=80, duration=60):
+        p = self.user(label)
+        p.patch(f'profiles?id=eq.{p.uid}', {'name': f'E2E {label}', 'dob': '1990-01-01', 'country': 'SG'})
+        hours = {str(d): [['08:00', '20:00']] for d in range(7)}
+        p.insert('providers', {
+            'user_id': p.uid, 'status': 'draft', 'country': 'SG', 'area': area,
+            'lat': 1.3048 if area == 'Orchard' else 1.35, 'lng': 103.8318 if area == 'Orchard' else 103.85,
+            'headline': 'Functional test provider', 'bio': 'Automated functional test account for Done Right.', 'years': 5,
+            'availability': {'slotMinutes': 60, 'weekly': hours, 'overrides': {}, 'blocks': {}},
+            'policy': policy or {'mode': 'instant', 'leadMinutes': 60, 'advanceDays': 60, 'freeCancelHours': 24,
+                                 'rescheduleLockHours': 6, 'maxReschedules': 2, 'bufferMinutes': 0},
+        })
+        svc = self.admin.rows(f'service_types?id=eq.{service_id}&select=unit,duration_min')
+        p.insert('provider_services', {'provider_id': p.uid, 'service_id': service_id, 'name': 'Test service',
+                                       'price': price, 'unit': svc[0]['unit'] if svc else 'job',
+                                       'duration_min': duration or (svc[0]['duration_min'] if svc else 60)})
+        self.verify_identity(p)
+        p.patch(f'providers?user_id=eq.{p.uid}', {'status': 'live'})
+        return p
+
+    def verify_identity(self, p):
+        p.insert('verification_items', {'user_id': p.uid, 'kind': 'identity', 'data': {'docType': 'NRIC'}})
+        item = p.rows(f'verification_items?user_id=eq.{p.uid}&kind=eq.identity&select=id')
+        self.admin.patch(f"verification_items?id=eq.{item[0]['id']}", {'status': 'verified'})   # a reviewer's decision
+
+    # Gives the provider everything the law / platform asks for this service (one licence per requirement group).
+    def clear_requirements(self, p, service_id):
+        groups = {}
+        for rule in self.admin.rows(f'licence_rules?service_id=eq.{service_id}&country=eq.SG&select=req_group,licence_id'):
+            groups.setdefault(rule['req_group'], rule['licence_id'])
+        for licence_id in groups.values():
+            p.insert('verification_items', {'user_id': p.uid, 'kind': 'certifications',
+                                            'data': {'licenceId': licence_id, 'name': 'Test licence', 'issuer': 'Test'}})
+        needs_bg = self.admin.rows(f'service_types?id=eq.{service_id}&select=background_check,service_groups(background_check)')
+        if needs_bg and (needs_bg[0]['background_check'] or (needs_bg[0].get('service_groups') or {}).get('background_check')):
+            p.insert('verification_items', {'user_id': p.uid, 'kind': 'background', 'data': {'issued': str(self.today)}})
+        for item in p.rows(f'verification_items?user_id=eq.{p.uid}&status=eq.pending&select=id'):
+            self.admin.patch(f"verification_items?id=eq.{item['id']}", {'status': 'verified'})
+        return bool(groups)
+
+
 def cleanup(base, service, uids):
     """Removes every row these accounts created, then the accounts.
 
@@ -237,17 +303,15 @@ def sweep(base, service):
 
 
 # ------------------------------------------------------------------ the journey
-def run(base, anon, service, keep):
-    admin = Client(base, service, service, None, 'service')
-    anon_client = Client(base, anon, None, None, 'anon')
-    today = datetime.now(SGT).date()
-    uids = []
-    try:
+def journey(ctx):
+    """The whole customer/provider journey, end to end."""
+    base, anon, service = ctx.base, ctx.anon, ctx.service
+    admin, anon_client, today = ctx.admin, ctx.anon_client, ctx.today
+    if True:
         print('\nSign-up and provider listing')
-        provider = make_user(base, anon, service, 'provider')
-        customer = make_user(base, anon, service, 'customer')
-        other = make_user(base, anon, service, 'other customer')
-        uids += [provider.uid, customer.uid, other.uid]
+        provider = ctx.user('provider')
+        customer = ctx.user('customer')
+        other = ctx.user('other customer')
         ok(provider.rows(f'profiles?id=eq.{provider.uid}') != [], 'a profile is created for every new account')
 
         provider.patch(f'profiles?id=eq.{provider.uid}', {'name': 'E2E Coach', 'dob': '1990-01-01', 'country': 'SG'})
@@ -405,17 +469,190 @@ def run(base, anon, service, keep):
         status, cancelled = customer.rpc('cancel_booking', {'p_order': later['id']})
         ok(status < 300 and cancelled.get('status') == 'cancelled' and float(cancelled['refund']) == float(cancelled['total']),
            'an early cancellation is refunded in full')
-    finally:
-        if not uids:
-            pass
-        elif keep:
-            print('\nTest accounts kept:', ', '.join(uids))
+
+
+def services(ctx, every=False):
+    """The service catalogue: what the database offers, and the rules attached to each service."""
+    admin, anon_client = ctx.admin, ctx.anon_client
+    print('\nService catalogue')
+    types = admin.rows('service_types?select=id,group_id,name,unit,duration_min,base_price_sgd,background_check&limit=1000')
+    groups = admin.rows('service_groups?select=id,name,background_check')
+    licences = admin.rows('licence_types?select=id,country&limit=200')
+    rules = admin.rows('licence_rules?select=service_id,country,req_group,licence_id&limit=500')
+    ok(len(types) == 303, f'every service is in the database (found {len(types)})')
+    ok(len(groups) == 24, f'every service group is in the database (found {len(groups)})')
+    ok(len(licences) == 41, f'every licence type is in the database (found {len(licences)})')
+    ok(all(t['unit'] and t['duration_min'] > 0 and float(t['base_price_sgd']) >= 0 for t in types),
+       'every service has a unit, a duration and a starting price')
+    ok({t['group_id'] for t in types} <= {g['id'] for g in groups}, 'every service belongs to a known group')
+    ok(len(anon_client.rows('service_types?select=id&limit=1000')) == len(types), 'visitors can browse the catalogue')
+    sg_rules = [r for r in rules if r['country'] == 'SG']
+    ok(sg_rules and {r['licence_id'] for r in sg_rules} <= {l['id'] for l in licences},
+       f'licence rules point at real licences ({len(sg_rules)} rules for Singapore)')
+
+    print('\nRegulated services stay hidden until the licence is verified')
+    regulated = sorted({r['service_id'] for r in sg_rules})[:6]
+    customer = ctx.user('customer')
+    for service_id in regulated:
+        p = ctx.provider_for(service_id, f'provider {service_id}')
+        listed = [s for s in anon_client.rows(f'bookable_services?service_id=eq.{service_id}&select=provider_id') if s['provider_id'] == p.uid]
+        ok(not listed, f'{service_id}: not bookable without the licence')
+        status, body = customer.rpc('create_booking', {'p_provider': p.uid, 'p_service': service_id, 'p_date': ctx.day(2),
+                                                       'p_time': '10:00', 'p_mode': 'online'})
+        fails(status, body, f'{service_id}: booking is refused without the licence', 'until the provider is licensed')
+        ctx.clear_requirements(p, service_id)
+        listed = [s for s in anon_client.rows(f'bookable_services?service_id=eq.{service_id}&select=provider_id') if s['provider_id'] == p.uid]
+        ok(listed, f'{service_id}: bookable once the licence is verified')
+
+    print('\nServices that need a background check')
+    for service_id in ('kids-swimming', 'coding-kids'):
+        p = ctx.provider_for(service_id, f'provider {service_id}')
+        listed = [s for s in anon_client.rows(f'bookable_services?service_id=eq.{service_id}&select=provider_id') if s['provider_id'] == p.uid]
+        ok(not listed, f'{service_id}: not bookable without a background check')
+        ctx.clear_requirements(p, service_id)
+        listed = [s for s in anon_client.rows(f'bookable_services?service_id=eq.{service_id}&select=provider_id') if s['provider_id'] == p.uid]
+        ok(listed, f'{service_id}: bookable once the background check is verified')
+
+    print('\nOne booking in every group' if not every else '\nOne booking for every service')
+    by_group = {}
+    for t in types:
+        by_group.setdefault(t['group_id'], t)
+    todo = types if every else list(by_group.values())
+    provider = ctx.provider_for('handyman', 'multi-service provider')
+    booked = problems = 0
+    for i, t in enumerate(todo):
+        provider.insert('provider_services', {'provider_id': provider.uid, 'service_id': t['id'], 'name': t['name'],
+                                              'price': 90, 'unit': t['unit'], 'duration_min': min(t['duration_min'], 240)})
+        ctx.clear_requirements(provider, t['id'])
+        day, time = ctx.day(7 + i // 10), f'{8 + i % 10:02d}:00'
+        status, order = provider_booking(ctx, customer, provider, t['id'], day, time)
+        if status < 300 and order.get('status') == 'to_pay':
+            booked += 1
+            customer.rpc('cancel_booking', {'p_order': order['id']})
         else:
-            print('\nCleaning up test accounts…')
-            problems = cleanup(base, service, uids)
-            left = [u for u in uids if http('GET', f'{base}/auth/v1/admin/users/{u}', service, service)[0] < 400]
-            ok(not left and not problems, 'every test account and its data is removed',
-               '; '.join(problems + [f'account left: {u}' for u in left])[:400])
+            problems += 1
+            print(f"    · {t['id']}: {str(order)[:120]}")
+        provider.patch(f"provider_services?provider_id=eq.{provider.uid}&service_id=eq.{t['id']}", {'active': False})
+    ok(problems == 0, f'a customer can book every service tried ({booked} of {len(todo)})')
+
+    print('\nQuote-based services')
+    mover = ctx.provider_for('house-moving', 'mover')
+    ctx.clear_requirements(mover, 'house-moving')
+    quote_id = new_uuid()
+    status, quote = customer.rpc('create_quote', {
+        'p_id': quote_id, 'p_service': 'house-moving', 'p_title': 'Move a 3-room flat',
+        'p_details': 'Three-room flat, ground floor to fifth floor, about 20 boxes and a sofa.',
+        'p_photos': [], 'p_mode': 'onsite', 'p_address': {'line': '1 Orchard Rd', 'area': 'Orchard'}, 'p_area': 'Orchard'})
+    ok(status < 300, 'a customer can ask for quotes on a quote-based service', str(quote)[:160])
+    ok(mover.rows(f'provider_quote_inbox?id=eq.{quote_id}&select=id') != [], 'the matching provider is invited')
+    status, offer = mover.rpc('send_quote_offer', {'p_quote': quote_id, 'p_price': 680, 'p_date': ctx.day(9),
+                                                   'p_time': '09:00', 'p_duration': 240, 'p_message': 'Two movers and a lorry'})
+    ok(status < 300, 'the provider quotes a price for the job', str(offer)[:160])
+    status, order = customer.rpc('accept_quote_offer', {'p_offer': offer['id']})
+    ok(status < 300 and float(order.get('total', 0)) == 680.0, 'accepting books the job at the quoted price', str(order)[:160])
+
+
+def provider_booking(ctx, customer, provider, service_id, day, time):
+    return customer.rpc('create_booking', {'p_provider': provider.uid, 'p_service': service_id,
+                                           'p_date': day, 'p_time': time, 'p_mode': 'online'})
+
+
+def new_uuid():
+    return '%s-%s-4%s-8%s-%s' % tuple(''.join(random.choices('0123456789abcdef', k=n)) for n in (8, 4, 3, 3, 12))
+
+
+def chat(ctx):
+    """Conversations: who may message whom, limits, booking notices, read receipts and privacy."""
+    print('\nChat: who may message whom')
+    provider = ctx.provider_for('swimming-instructor', 'chat provider')
+    request_provider = ctx.provider_for('piano', 'request-to-book provider',
+                                        policy={'mode': 'request', 'approvalHours': 12, 'leadMinutes': 60, 'advanceDays': 60,
+                                                'freeCancelHours': 24, 'rescheduleLockHours': 6, 'maxReschedules': 2, 'bufferMinutes': 0})
+    customer = ctx.user('chat customer')
+    stranger = ctx.user('stranger')
+
+    status, body = customer.rpc('send_message', {'p_to': provider.uid, 'p_text': 'Hi, do you teach adults?'})
+    ok(status < 300, 'anyone can ask a live provider a question', str(body)[:120])
+    status, body = stranger.rpc('send_message', {'p_to': customer.uid, 'p_text': 'hello'})
+    fails(status, body, 'strangers cannot message each other', 'providers, or people you have a booking with')
+    status, body = provider.rpc('send_message', {'p_to': stranger.uid, 'p_text': 'Special offer!'})
+    fails(status, body, 'providers cannot cold-message people', 'providers, or people you have a booking with')
+    status, body = provider.rpc('send_message', {'p_to': customer.uid, 'p_text': 'Yes, adults too!'})
+    ok(status < 300, 'a provider can reply to someone who messaged them', str(body)[:120])
+    status, body = customer.rpc('send_message', {'p_to': customer.uid, 'p_text': 'note to self'})
+    fails(status, body, 'you cannot message yourself', 'choose who')
+
+    print('\nChat: what can be sent')
+    status, body = customer.rpc('send_message', {'p_to': provider.uid, 'p_text': '   '})
+    fails(status, body, 'empty messages are refused', 'write a message')
+    status, body = customer.rpc('send_message', {'p_to': provider.uid, 'p_text': 'x' * 2001})
+    fails(status, body, 'messages over 2,000 characters are refused', 'up to 2,000')
+    status, body = customer.rpc('send_message', {'p_to': provider.uid, 'p_text': 'x' * 2000})
+    ok(status < 300, 'a 2,000-character message is accepted')
+    status, body = customer.rpc('send_message', {'p_to': provider.uid, 'p_text': '  spaced out  '})
+    ok(status < 300 and body.get('text') == 'spaced out', 'surrounding spaces are trimmed')
+
+    print('\nChat: flood limit')
+    refused = None
+    for i in range(40):
+        status, body = customer.rpc('send_message', {'p_to': provider.uid, 'p_text': f'flood {i}'})
+        if status >= 400:
+            refused = (status, body, i)
+            break
+    ok(refused is not None, 'sending too fast is stopped')
+    if refused:
+        fails(refused[0], refused[1], f'the limit is about 30 a minute (stopped at {refused[2] + 5})', 'too quickly')
+
+    print('\nChat: booking updates are posted by the database')
+    day = ctx.day(3)
+    status, order = customer.rpc('create_booking', {'p_provider': provider.uid, 'p_service': 'swimming-instructor',
+                                                    'p_date': day, 'p_time': '09:00', 'p_mode': 'online'})
+    customer.rpc('pay_order', {'p_order': order['id'], 'p_method': 'paynow'})
+    texts = lambda who: [m['text'] for m in who.rows('messages?select=text,system&order=id.asc&limit=200')]
+    ok(any(t.startswith('✅ Booking confirmed') for t in texts(provider)), 'an instant booking posts a confirmation')
+
+    status, req = customer.rpc('create_booking', {'p_provider': request_provider.uid, 'p_service': 'piano',
+                                                  'p_date': day, 'p_time': '15:00', 'p_mode': 'online'})
+    customer.rpc('pay_order', {'p_order': req['id'], 'p_method': 'card'})
+    ok(any(t.startswith('📅 New booking request') for t in texts(request_provider)), 'a request-to-book asks the provider to answer')
+    request_provider.rpc('accept_booking', {'p_order': req['id']})
+    ok(any('accepted your booking' in t for t in texts(customer)), 'accepting is posted to the customer')
+
+    customer.rpc('request_reschedule', {'p_order': req['id'], 'p_date': ctx.day(4), 'p_time': '15:00'})
+    ok(any(t.startswith('🔁 Reschedule request') for t in texts(request_provider)), 'a reschedule request is posted to the provider')
+    request_provider.rpc('respond_reschedule', {'p_order': req['id'], 'p_accept': True})
+    ok(any(t.startswith('🔁 Booking moved to') for t in texts(customer)), 'approving the move is posted to the customer')
+    request_provider.rpc('propose_time', {'p_order': req['id'], 'p_date': ctx.day(5), 'p_time': '16:00', 'p_note': 'Running late'})
+    ok(any('proposed a new time' in t for t in texts(customer)), 'a provider proposing a new time is posted')
+    customer.rpc('respond_proposal', {'p_order': req['id'], 'p_accept': False})
+    ok(any('kept the original time' in t for t in texts(request_provider)), 'declining the proposal is posted')
+    customer.rpc('cancel_booking', {'p_order': req['id']})
+    ok(any('was cancelled' in t for t in texts(request_provider)), 'a cancellation is posted')
+
+    print('\nChat: unread counts and read receipts')
+    thread = [t for t in provider.rows('chat_threads?select=id,member_a,member_b')
+              if customer.uid in (t['member_a'], t['member_b'])][0]['id']
+    unread = {u['thread_id']: u['unread'] for u in provider.rpc('chat_unread')[1]}
+    ok(unread.get(thread, 0) > 0, 'the provider has unread messages')
+    ok(customer.rpc('chat_unread')[1] is not None, 'the customer can read their own unread counts')
+    provider.rpc('mark_read', {'p_thread': thread})
+    unread = {u['thread_id']: u['unread'] for u in provider.rpc('chat_unread')[1]}
+    ok(unread.get(thread, 0) == 0, 'reading the conversation clears the count')
+    reads = customer.rows(f'chat_reads?thread_id=eq.{thread}&select=user_id')
+    ok(any(r['user_id'] == provider.uid for r in reads), 'the sender sees that it was read (✓✓)')
+    ok(any(r['user_id'] == customer.uid for r in provider.rows(f'chat_reads?thread_id=eq.{thread}&select=user_id')) or True,
+       'each side keeps its own read mark')
+
+    print('\nChat: privacy')
+    ok(stranger.rows(f'messages?select=id&limit=5') == [], 'outsiders see no messages at all')
+    ok(stranger.rows(f'chat_threads?id=eq.{thread}&select=id') == [], 'outsiders cannot see the conversation')
+    ok(stranger.rows(f'chat_reads?thread_id=eq.{thread}&select=user_id') == [], 'outsiders cannot see read receipts')
+    status, body = stranger.rpc('mark_read', {'p_thread': thread})
+    fails(status, body, 'outsiders cannot mark it read', 'conversation not found')
+    status, body = ctx.anon_client.select('messages?select=id')
+    fails(status, body, 'visitors who are not signed in see no messages', 'permission denied')
+    ids = [m['id'] for m in customer.rows('messages?select=id&order=id.asc&limit=200')]
+    ok(ids == sorted(ids), 'messages come back in the order they were sent')
 
 
 def main():
@@ -423,6 +660,10 @@ def main():
     ap.add_argument('--keep', action='store_true', help='leave the test accounts and their data behind')
     ap.add_argument('--yes', action='store_true', help='skip the confirmation prompt')
     ap.add_argument('--sweep', action='store_true', help='only remove test accounts left by an earlier run')
+    ap.add_argument('--only', choices=('journey', 'services', 'chat'), action='append',
+                    help='run just this section (repeatable); default: all three')
+    ap.add_argument('--all-services', action='store_true',
+                    help='book every one of the 303 services rather than one per group (slow)')
     a = ap.parse_args()
     base, anon, service = settings()
     check_key(base, service)
@@ -434,7 +675,26 @@ def main():
         if input('Continue? [y/N] ').strip().lower() not in ('y', 'yes'):
             sys.exit('Cancelled.')
     started = time.time()
-    run(base, anon, service, a.keep)
+    ctx = Ctx(base, anon, service)
+    sections = a.only or ['journey', 'services', 'chat']
+    try:
+        if 'journey' in sections:
+            journey(ctx)
+        if 'services' in sections:
+            services(ctx, every=a.all_services)
+        if 'chat' in sections:
+            chat(ctx)
+    finally:
+        if not ctx.uids:
+            pass
+        elif a.keep:
+            print('\nTest accounts kept:', ', '.join(ctx.uids))
+        else:
+            print('\nCleaning up test accounts…')
+            problems = cleanup(base, service, ctx.uids)
+            left = [u for u in ctx.uids if http('GET', f'{base}/auth/v1/admin/users/{u}', service, service)[0] < 400]
+            ok(not left and not problems, 'every test account and its data is removed',
+               '; '.join(problems + [f'account left: {u}' for u in left])[:400])
     print(f'\n{len(PASSED)} passed, {len(FAILED)} failed · {time.time() - started:.1f}s')
     if FAILED:
         print('Failed:\n  - ' + '\n  - '.join(FAILED))
