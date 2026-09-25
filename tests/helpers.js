@@ -36,6 +36,18 @@
       DR.store.save();
     },
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    // resolves as soon as fn() is truthy; fails the test with `label` if it never becomes true
+    async waitFor(fn, label = 'condition', timeout = 4000) {
+      const until = Date.now() + timeout;
+      for (;;) {
+        const v = fn();
+        if (v) return v;
+        if (Date.now() > until) throw new Error(`timed out waiting for ${label}`);
+        await H.sleep(20);
+      }
+    },
   };
+  // demo auto-replies answer immediately in tests
+  if (DR.CONFIG && DR.CONFIG.demo) DR.CONFIG.demo.autoReplyMs = 10;
   window.H = H;
 })();

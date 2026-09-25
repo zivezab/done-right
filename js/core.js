@@ -177,7 +177,7 @@ window.DR = window.DR || {};
       DR.emit('saved');
     },
     update(fn, opts = {}) { fn(state); this.save(); if (opts.render !== false) DR.router.refresh(); },
-    reset() { state = defaults(); try { sessionStorage.removeItem(SKEY); } catch (e) { /* ignore */ } this.save(); },
+    reset() { if (DR.chat && DR.chat.cancelAutoReplies) DR.chat.cancelAutoReplies(); state = defaults(); try { sessionStorage.removeItem(SKEY); } catch (e) { /* ignore */ } this.save(); },
     sessionId() { const id = tabSession(); return id && state.users[id] ? id : null; },
     setSession(id) {
       // signing in brings along what was added to the cart as a guest

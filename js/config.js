@@ -22,6 +22,6 @@
     // anonKey is the public "anon" key; never put the service-role key in client code.
     supabase: { url: '', anonKey: '', showSeeds: false },
     // Demo simulation timings (ms)
-    demo: { providerReplyMs: 8000, quoteOfferMs: 6000, reviewMs: 20000 },
+    demo: { providerReplyMs: 8000, quoteOfferMs: 6000, reviewMs: 20000, autoReplyMs: 1200 },
   }, window.DR_CONFIG || {});
 })(window.DR);
